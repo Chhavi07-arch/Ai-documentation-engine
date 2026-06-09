@@ -1,0 +1,21 @@
+# --- Web framework ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# --- Data / ORM ---
+sqlalchemy==2.0.36
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# --- Git ingestion ---
+GitPython==3.1.43
+
+# --- HTTP client for OpenRouter ---
+httpx==0.28.1
+
+# --- RAG / vector store ---
+chromadb==0.5.23
+
+# --- Utilities ---
+python-dotenv==1.0.1
+python-multipart==0.0.18

@@ -23,23 +23,22 @@ from app.models.enums import RepositoryStatus
 from app.parsers import PythonParser
 from app.parsers.base import ParsedEntity, ParsedFile
 from app.services.snapshot_service import SnapshotService
+from app.services.states import (
+    MAX_FILE_BYTES as _MAX_FILE_BYTES,
+    SKIP_DIRS as _SKIP_DIRS,
+    doc_states_from_tree,
+    states_from_parsed,
+)
 from app.utils import dump_json
 from app.utils.git_utils import (
     clone_repository,
+    fetch_latest,
     get_repo_metadata,
     parse_github_url,
     read_local_commit,
 )
 
 logger = get_logger("docengine.ingest")
-
-# Directories that never contain first-party source worth documenting.
-_SKIP_DIRS = {
-    ".git", ".github", "__pycache__", ".venv", "venv", "env", "node_modules",
-    "build", "dist", ".mypy_cache", ".pytest_cache", ".tox", "site-packages",
-    "migrations", ".idea", ".vscode",
-}
-_MAX_FILE_BYTES = 1_000_000  # 1 MB — skip generated/huge files
 
 
 class IngestionService:
@@ -83,9 +82,7 @@ class IngestionService:
                 )
 
             self._replace_entities(repo, parsed_files)
-            SnapshotService(self.db).create_snapshot(
-                repo.id, label="ingest-baseline", commit_sha=metadata["commit_sha"]
-            )
+            self._create_baseline(repo, parsed_files, metadata.get("commit_sha"))
 
             self._set_status(repo, RepositoryStatus.READY)
             logger.info(
@@ -157,11 +154,46 @@ class IngestionService:
         """
         parsed_files, metadata = self.parse_local_tree(repo)
         self._replace_entities(repo, parsed_files)
-        SnapshotService(self.db).create_snapshot(
-            repo.id, label="ingest-baseline", commit_sha=metadata.get("commit_sha")
-        )
+        self._create_baseline(repo, parsed_files, metadata.get("commit_sha"))
         self._set_status(repo, RepositoryStatus.READY)
         return repo
+
+    def sync_from_remote(self, repository_id: int) -> str | None:
+        """Incrementally fetch the latest commits for a repository's default
+        branch and update its local clone in place.
+
+        This is the clone-free counterpart to (re-)ingestion: it downloads only
+        new objects via :func:`fetch_latest` (no full re-clone) so a subsequent
+        change-detection run diffs the freshly pulled code. Returns the new HEAD
+        sha. Powers the GitHub webhook and the manual "sync" endpoint.
+        """
+        repo = self.db.get(Repository, repository_id)
+        if repo is None:
+            raise NotFoundError(f"Repository {repository_id} not found.")
+        local_path = self.local_working_path(repo)
+        if not local_path.exists():
+            raise IngestionError(
+                "Local working copy not found. Re-ingest the repository first."
+            )
+        new_sha = fetch_latest(local_path, repo.default_branch)
+        logger.info(
+            "Synced %s from remote → %s", repo.full_name, (new_sha or "?")[:8]
+        )
+        return new_sha
+
+    def _create_baseline(
+        self, repo: Repository, parsed_files: list[ParsedFile], commit_sha: str | None
+    ) -> None:
+        """Snapshot both code entities and tracked doc files as the baseline.
+
+        Including doc files (README/*.md, *.rst) means a later edit to them is
+        detectable as drift, not invisible.
+        """
+        states = states_from_parsed(parsed_files)
+        states += doc_states_from_tree(self.local_working_path(repo))
+        SnapshotService(self.db).create_snapshot_from_states(
+            repo.id, states, label="ingest-baseline", commit_sha=commit_sha
+        )
 
     # --- scanning & parsing ------------------------------------------------
 

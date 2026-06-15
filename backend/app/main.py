@@ -16,7 +16,15 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import get_logger
-from app.routers import chat, changes, documentation, repositories, staleness, system
+from app.routers import (
+    chat,
+    changes,
+    documentation,
+    github,
+    repositories,
+    staleness,
+    system,
+)
 
 logger = get_logger("docengine.main")
 
@@ -56,7 +64,7 @@ app.add_middleware(
 register_exception_handlers(app)
 
 # Mount routers under /api.
-for module in (system, repositories, documentation, changes, staleness, chat):
+for module in (system, repositories, documentation, changes, staleness, chat, github):
     app.include_router(module.router, prefix=API_PREFIX)
 
 

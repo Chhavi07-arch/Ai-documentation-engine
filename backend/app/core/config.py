@@ -64,6 +64,12 @@ class Settings(BaseSettings):
         default="sqlite:///./docengine.db", alias="DATABASE_URL"
     )
 
+    # --- GitHub webhook ---
+    # Shared secret used to verify the HMAC signature GitHub sends with each
+    # push event. Leave empty to disable the webhook endpoint (it then returns
+    # 503 so changes can't be triggered without a configured secret).
+    github_webhook_secret: str = Field(default="", alias="GITHUB_WEBHOOK_SECRET")
+
     # --- CORS ---
     cors_origins: str = Field(default="http://localhost:3000", alias="CORS_ORIGINS")
 

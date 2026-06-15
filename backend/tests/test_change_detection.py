@@ -178,3 +178,54 @@ def test_local_edits_are_preserved(tmp_path: Path):
     assert extra_file.exists()
     assert extra_file.read_text(encoding="utf-8") == "VALUE = 42\n"
     db.close()
+
+
+def test_readme_edit_is_detected(tmp_path: Path):
+    """Editing a tracked doc file (README.md) is surfaced as drift + a flag."""
+    db = SessionLocal()
+    repo = _make_repo(db, tmp_path)
+    (tmp_path / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("# Project\nOriginal description.\n", encoding="utf-8")
+    _baseline(db, repo)
+
+    # The exact scenario from the report: change only the README, nothing else.
+    (tmp_path / "README.md").write_text("# Project\nCompletely new description.\n", encoding="utf-8")
+    result = ChangeDetectionService(db).detect_changes(repo.id)
+
+    readme = [c for c in result["changes"] if c["qualified_name"] == "README.md"]
+    assert readme, "expected a change for README.md"
+    assert readme[0]["kind"] == "doc"
+
+    flags = list(
+        db.scalars(select(StalenessFlag).where(StalenessFlag.repository_id == repo.id)).all()
+    )
+    assert any(f.qualified_name == "README.md" for f in flags)
+    db.close()
+
+
+def test_new_doc_file_is_detected_as_added(tmp_path: Path):
+    db = SessionLocal()
+    repo = _make_repo(db, tmp_path)
+    (tmp_path / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    _baseline(db, repo)
+
+    (tmp_path / "GUIDE.md").write_text("# Guide\nBrand new doc.\n", encoding="utf-8")
+    result = ChangeDetectionService(db).detect_changes(repo.id)
+
+    guide = [c for c in result["changes"] if c["qualified_name"] == "GUIDE.md"]
+    assert guide and guide[0]["change_type"] == ChangeType.ADDED.value
+    assert guide[0]["kind"] == "doc"
+    db.close()
+
+
+def test_unchanged_readme_produces_no_doc_change(tmp_path: Path):
+    db = SessionLocal()
+    repo = _make_repo(db, tmp_path)
+    (tmp_path / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("# Project\nStable.\n", encoding="utf-8")
+    _baseline(db, repo)
+
+    # No edits at all → README must not be reported as changed.
+    result = ChangeDetectionService(db).detect_changes(repo.id)
+    assert not [c for c in result["changes"] if c["qualified_name"] == "README.md"]
+    db.close()

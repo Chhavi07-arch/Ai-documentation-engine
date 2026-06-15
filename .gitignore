@@ -10,6 +10,8 @@ env/
 
 # --- Backend runtime data ---
 backend/*.db
+backend/*.db-shm
+backend/*.db-wal
 backend/.env
 docs_storage/*
 vector_storage/*

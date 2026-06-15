@@ -120,7 +120,15 @@ class DocGenerationService:
         summary = truncate(_first_paragraph(markdown), 280)
         storage_path = self._write_to_disk(repo, entity, markdown)
 
-        doc = entity.documentation
+        # Look the row up by entity_id directly rather than trusting the
+        # lazily-loaded ``entity.documentation`` relationship: that backref can
+        # be stale or unloaded (e.g. on re-runs or under the frontend's
+        # concurrent polling), which previously caused a duplicate INSERT and a
+        # ``UNIQUE constraint failed: documentation.entity_id`` crash. Querying
+        # the database makes this a reliable upsert.
+        doc = self.db.scalar(
+            select(Documentation).where(Documentation.entity_id == entity.id)
+        )
         if doc is None:
             doc = Documentation(
                 repository_id=repo.id,

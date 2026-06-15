@@ -23,10 +23,9 @@ from app.models import (
     StalenessFlag,
 )
 from app.models.enums import ChangeType
-from app.parsers.base import ParsedEntity, ParsedFile
 from app.services.ingestion_service import IngestionService
 from app.services.snapshot_service import SnapshotService
-from app.utils import dump_json
+from app.services.states import DOC_KIND, doc_states_from_tree, states_from_parsed
 
 logger = get_logger("docengine.changes")
 
@@ -57,9 +56,14 @@ class ChangeDetectionService:
 
         baseline = self.snapshots.latest_snapshot(repository_id)
 
-        # Parse the current local working tree (no git operations whatsoever).
-        parsed_files, metadata = IngestionService(self.db).parse_local_tree(repo)
-        new_states = _states_from_parsed(parsed_files)
+        # Parse the current local working tree (no git operations whatsoever),
+        # then add fingerprints for tracked documentation files (README/*.md,
+        # *.rst) so content edits to them are detected alongside code changes.
+        ingestion = IngestionService(self.db)
+        parsed_files, metadata = ingestion.parse_local_tree(repo)
+        new_states = states_from_parsed(parsed_files) + doc_states_from_tree(
+            ingestion.local_working_path(repo)
+        )
 
         if baseline is None:
             # No baseline yet (e.g. repo ingested before snapshots existed):
@@ -88,6 +92,11 @@ class ChangeDetectionService:
             c for c in diff_snapshots(old_states, new_states)
             if c.change_type is not ChangeType.UNCHANGED
         ]
+        # Doc files reuse the code diff machinery, so give them doc-appropriate
+        # wording instead of the code-centric default reasons.
+        for c in changes:
+            if c.kind == DOC_KIND:
+                c.reason = _doc_reason(c)
 
         # Recompute the flag set from scratch each run so counts are stable and
         # never duplicated across repeated detections.
@@ -183,27 +192,21 @@ class ChangeDetectionService:
 
 
 # --- EntityState builders --------------------------------------------------
+#
+# Parsed-source and doc-file builders live in ``app.services.states`` so both
+# ingestion and change detection share them. Only the snapshot-reading builder
+# (DB-specific) stays here.
 
 
-def _state_from_parsed_entity(entity: ParsedEntity) -> EntityState:
-    return EntityState(
-        qualified_name=entity.qualified_name,
-        kind=entity.kind.value,
-        signature=entity.signature,
-        return_type=entity.return_type,
-        parameters_json=dump_json([p.to_dict() for p in entity.parameters]),
-        docstring=entity.docstring,
-        structure_hash=entity.structure_hash(),
-        body_hash=entity.body_hash(),
-        source_code=entity.source_code,
-    )
-
-
-def _states_from_parsed(parsed_files: list[ParsedFile]) -> list[EntityState]:
-    states: list[EntityState] = []
-    for pf in parsed_files:
-        states.extend(_state_from_parsed_entity(e) for e in pf.entities)
-    return states
+def _doc_reason(change: ChangeResult) -> str:
+    """Human-friendly reason text for a documentation-file change."""
+    if change.change_type is ChangeType.ADDED:
+        return "New documentation file added."
+    if change.change_type is ChangeType.DELETED:
+        return "Documentation file was removed."
+    if change.change_type is ChangeType.RENAMED:
+        return f"Documentation file renamed from `{change.renamed_from}`."
+    return "Documentation content changed; review it for accuracy."
 
 
 def _states_from_snapshot(snapshot: Snapshot) -> list[EntityState]:

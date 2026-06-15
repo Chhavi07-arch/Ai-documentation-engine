@@ -1,0 +1,26 @@
+# One-command local stack: backend (FastAPI) + frontend (Next.js).
+#   OPENROUTER_API_KEY=sk-... docker compose up --build
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-4-6}
+      CORS_ORIGINS: http://localhost:3000
+    volumes:
+      - docengine_data:/data
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  docengine_data:

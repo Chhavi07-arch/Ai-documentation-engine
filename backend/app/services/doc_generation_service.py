@@ -7,9 +7,10 @@ are persisted to the database and mirrored to ``docs_storage`` on disk.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -48,7 +49,21 @@ class DocGenerationService:
 
         entities = self._select_entities(repository_id, entity_ids, force)
 
-        generated = skipped = failed = 0
+        # In the default mode we only (re)generate undocumented entities; the
+        # already-documented ones are reported as skipped rather than as 0.
+        skipped = 0
+        if not force and not entity_ids:
+            total = (
+                self.db.scalar(
+                    select(func.count())
+                    .select_from(CodeEntity)
+                    .where(CodeEntity.repository_id == repository_id)
+                )
+                or 0
+            )
+            skipped = max(0, total - len(entities))
+
+        generated = failed = 0
         used_generator = "fallback"
 
         for entity in entities:
@@ -112,6 +127,12 @@ class DocGenerationService:
             temperature=0.2,
             max_tokens=1400,
         )
+        markdown = _clean_ai_markdown(markdown)
+        # A truncated/empty completion (e.g. a low-credit 402 retry) must not be
+        # silently saved as a complete doc — fail so the caller falls back to the
+        # deterministic generator and the entity still ends up documented.
+        if not _looks_like_doc(markdown):
+            raise AIServiceError("AI returned empty or incomplete documentation.")
         return markdown, "ai"
 
     def _persist(
@@ -205,13 +226,15 @@ class DocGenerationService:
             lines.append("```")
             lines.append("")
 
-        overview = entity.docstring or f"`{entity.qualified_name}` ({entity.kind.value})."
+        is_callable = entity.kind in {EntityKind.FUNCTION, EntityKind.METHOD}
+
+        overview = (entity.docstring or "").strip() or _synth_overview(entity)
         lines.append("### Overview")
         lines.append("")
-        lines.append(overview.strip())
+        lines.append(overview)
         lines.append("")
 
-        if entity.parameters and entity.kind in {EntityKind.FUNCTION, EntityKind.METHOD}:
+        if entity.parameters and is_callable:
             lines.append("### Parameters")
             lines.append("")
             for p in entity.parameters:
@@ -223,10 +246,18 @@ class DocGenerationService:
                 lines.append(" ".join(bits))
             lines.append("")
 
-        if entity.return_type and entity.kind in {EntityKind.FUNCTION, EntityKind.METHOD}:
+        if entity.return_type and is_callable:
             lines.append("### Returns")
             lines.append("")
             lines.append(f"`{entity.return_type}`")
+            lines.append("")
+
+        raises = _scan_raises(entity.source_code)
+        if raises and is_callable:
+            lines.append("### Raises")
+            lines.append("")
+            for exc in raises:
+                lines.append(f"- `{exc}`")
             lines.append("")
 
         if entity.decorators:
@@ -234,6 +265,22 @@ class DocGenerationService:
             lines.append("")
             for d in entity.decorators:
                 lines.append(f"- `@{d}`")
+            lines.append("")
+
+        # A module's notable imports stand in for its "contents" offline.
+        if entity.kind is EntityKind.MODULE and entity.imports:
+            lines.append("### Notable Imports")
+            lines.append("")
+            for imp in entity.imports[:12]:
+                lines.append(f"- `{imp}`")
+            lines.append("")
+
+        if is_callable:
+            lines.append("### Usage Example")
+            lines.append("")
+            lines.append("```python")
+            lines.append(_synth_example(entity))
+            lines.append("```")
             lines.append("")
 
         lines.append("> _Structured documentation generated from the code's "
@@ -249,3 +296,65 @@ def _first_paragraph(markdown: str) -> str:
         if cleaned and not cleaned.startswith("#") and not cleaned.startswith("```"):
             return cleaned.replace("\n", " ")
     return markdown.strip().split("\n", 1)[0]
+
+
+def _visible_params(entity: ParsedEntity) -> list[str]:
+    """Parameter names a caller passes (drop self/cls and *args/**kwargs markers)."""
+    return [
+        p.name
+        for p in entity.parameters
+        if p.name not in {"self", "cls"} and not p.name.startswith("*")
+    ]
+
+
+def _synth_overview(entity: ParsedEntity) -> str:
+    """Synthesize a one-line overview from the signature when no docstring exists."""
+    kind = entity.kind.value
+    if entity.kind in {EntityKind.FUNCTION, EntityKind.METHOD}:
+        prefix = "Asynchronously runs" if entity.is_async else "Runs"
+        sentence = f"{prefix} `{entity.name}`"
+        params = _visible_params(entity)
+        if params:
+            sentence += " given " + ", ".join(f"`{p}`" for p in params)
+        if entity.return_type:
+            sentence += f", returning `{entity.return_type}`"
+        return sentence + "."
+    if entity.kind is EntityKind.CLASS:
+        return f"The `{entity.name}` class, defined in `{entity.relative_path}`."
+    return f"`{entity.qualified_name}` ({kind})."
+
+
+def _synth_example(entity: ParsedEntity) -> str:
+    """Build a templated call example from the signature."""
+    args = ", ".join(_visible_params(entity))
+    if entity.kind is EntityKind.METHOD:
+        owner = entity.parent_name.rsplit(".", 1)[-1] if entity.parent_name else "obj"
+        receiver = (owner[:1].lower() + owner[1:]) if owner else "obj"
+        call = f"{receiver}.{entity.name}({args})"
+    else:
+        call = f"{entity.name}({args})"
+    return f"result = {call}" if entity.return_type else call
+
+
+def _scan_raises(source: str | None) -> list[str]:
+    """Extract distinct exception types explicitly ``raise``d in the source."""
+    if not source:
+        return []
+    return sorted({m.group(1) for m in re.finditer(r"\braise\s+([A-Za-z_][\w.]*)", source)})
+
+
+_FENCE_RE = re.compile(r"^```[a-zA-Z]*\n(.*)\n```$", re.DOTALL)
+
+
+def _clean_ai_markdown(text: str) -> str:
+    """Strip a single wrapping code fence if the model added one despite instructions."""
+    stripped = (text or "").strip()
+    match = _FENCE_RE.match(stripped)
+    return match.group(1).strip() if match else stripped
+
+
+def _looks_like_doc(markdown: str) -> bool:
+    """Heuristic validity check: non-trivial length and at least one heading."""
+    if not markdown or len(markdown) < 40:
+        return False
+    return any(line.lstrip().startswith("#") for line in markdown.splitlines())

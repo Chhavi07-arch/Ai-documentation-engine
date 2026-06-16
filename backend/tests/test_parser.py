@@ -66,3 +66,30 @@ def test_syntax_error_is_tolerated():
     # A malformed file yields no entities but must not raise — one bad file
     # should never abort ingestion of an entire repository.
     assert pf.entities == []
+
+
+NESTED_SOURCE = '''
+class Outer:
+    """Outer class."""
+
+    class Config:
+        """Nested config (Pydantic/Django idiom)."""
+
+        def validate(self):
+            return True
+
+    def outer_method(self):
+        return 1
+'''
+
+
+def test_nested_classes_and_their_methods_are_extracted():
+    pf = PythonParser().parse_file(
+        source=NESTED_SOURCE, relative_path="m.py", module_path="m"
+    )
+    qnames = {e.qualified_name for e in pf.entities}
+    # Both the nested class and its method must be captured (M1 completeness).
+    assert "m.Outer" in qnames
+    assert "m.Outer.Config" in qnames
+    assert "m.Outer.Config.validate" in qnames
+    assert "m.Outer.outer_method" in qnames

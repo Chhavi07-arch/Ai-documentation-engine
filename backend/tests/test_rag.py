@@ -66,6 +66,43 @@ def test_chat_indexes_and_grounds_answer(tmp_path: Path):
     db.close()
 
 
+def test_chat_rejects_off_topic_question(tmp_path: Path):
+    """Off-topic questions must be honestly rejected — not answered from
+    unrelated docs. The local hashing embedder gives junk queries non-trivial
+    cosine noise, so the relevance gate must require a real lexical signal.
+    """
+    db = SessionLocal()
+    repo = _seed_repo_with_docs(db, tmp_path)
+
+    res = asyncio.run(
+        RAGService(db).chat(
+            repository_id=repo.id,
+            message="What is the airspeed velocity of an unladen swallow?",
+        )
+    )
+    assert res["grounded"] is False
+    assert res["answer"] == "Information not found in documentation."
+    assert res["sources"] == []
+    db.close()
+
+
+def test_chat_rejects_offtopic_sharing_one_common_word(tmp_path: Path):
+    """A junk question that incidentally shares ONE common word with the docs
+    (here "user") must still be rejected — one weak text hit is not enough."""
+    db = SessionLocal()
+    repo = _seed_repo_with_docs(db, tmp_path)  # doc mentions "user", "email", ...
+
+    res = asyncio.run(
+        RAGService(db).chat(
+            repository_id=repo.id,
+            message="Where can I buy a user manual for my lawnmower engine?",
+        )
+    )
+    assert res["grounded"] is False
+    assert res["answer"] == "Information not found in documentation."
+    db.close()
+
+
 def test_chat_self_heals_on_dimension_mismatch(tmp_path: Path):
     """A collection built with a different dimension must not 500 the chat."""
     db = SessionLocal()

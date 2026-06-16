@@ -15,7 +15,11 @@ services:
         value: anthropic/claude-sonnet-4-6
       - key: CORS_ORIGINS
         value: https://your-frontend.vercel.app
-    disk:
-      name: docengine-data
-      mountPath: /data
-      sizeGB: 1
+# NOTE: the free plan does not support a persistent disk, so storage is
+# ephemeral (the SQLite DB and generated docs reset on each deploy/restart) —
+# fine for a demo. For durable storage, switch `plan: free` to `plan: starter`
+# and uncomment the disk block below (and point DATABASE_URL at /data):
+#    disk:
+#      name: docengine-data
+#      mountPath: /data
+#      sizeGB: 1

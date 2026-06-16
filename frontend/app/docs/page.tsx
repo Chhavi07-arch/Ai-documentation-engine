@@ -32,9 +32,12 @@ function DocsExplorer() {
   // Initialize the selected repo from the URL (?repo=) or the first ready one.
   React.useEffect(() => {
     if (repoId != null || !repos.data?.length) return;
-    const fromUrl = Number(searchParams.get("repo"));
+    // `Number(null) === 0`, and `0 ?? x` does NOT fall through (?? only catches
+    // null/undefined). Coerce a missing/zero param to a non-match so the chain
+    // correctly falls back to the first ready repository.
+    const fromUrl = Number(searchParams.get("repo")) || 0;
     const initial =
-      (fromUrl && repos.data.find((r) => r.id === fromUrl)?.id) ??
+      repos.data.find((r) => r.id === fromUrl)?.id ??
       repos.data.find((r) => r.status === "ready")?.id ??
       repos.data[0].id;
     setRepoId(initial);
@@ -42,12 +45,17 @@ function DocsExplorer() {
 
   const entities = useEntities(repoId ?? 0);
 
-  // Default-select the first entity when the list loads or repo changes.
+  // Default-select an entity when the list loads or repo changes. If the user
+  // arrived from the file tree (?path=<relative_path>), prefer the first entity
+  // in that file; otherwise fall back to the first entity overall.
   React.useEffect(() => {
-    if (entities.data?.length && !selected) {
-      setSelected(entities.data[0]);
-    }
-  }, [entities.data, selected]);
+    if (!entities.data?.length || selected) return;
+    const path = searchParams.get("path");
+    const match = path
+      ? entities.data.find((e) => e.relative_path === path)
+      : undefined;
+    setSelected(match ?? entities.data[0]);
+  }, [entities.data, selected, searchParams]);
 
   const onRepoChange = (id: number) => {
     setRepoId(id);

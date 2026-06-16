@@ -28,11 +28,21 @@ from app.utils import truncate
 
 logger = get_logger("docengine.rag")
 
-# Below this similarity, retrieved chunks are treated as irrelevant. Tuned for
-# the local hashing embedder (whose cosine scores run lower than dense semantic
-# models); the LLM still filters weak matches via its grounding instruction,
-# and genuinely off-topic queries score ~0 so they remain correctly rejected.
+# Relevance gate for the *remote* (dense semantic) embedder: its cosine scores
+# are meaningful, so a low combined floor plus the LLM's grounding instruction
+# is enough to reject off-topic queries.
 _RELEVANCE_THRESHOLD = 0.05
+# The *local* hashing embedder is noisier: genuinely off-topic queries still
+# land cosine ~0.3-0.4 against unrelated chunks (hash collisions on common
+# tokens), so a pure-vector floor would happily "answer" nonsense. We require
+# concrete lexical evidence instead: either a match against the entity *name*
+# (the strongest signal for code docs), several distinct query terms appearing
+# in the doc text, or an exceptionally strong vector match. A junk query that
+# merely shares one incidental common word with the docs has none of these and
+# is correctly reported as "not found".
+_LOCAL_MIN_NAME = 0.6     # ≥ one substring-or-better query↔name token match
+_LOCAL_MIN_TEXT = 2.0     # ≥ two distinct query terms present in the doc text
+_LOCAL_STRONG_VECTOR = 0.72   # well above the observed off-topic noise ceiling
 _NOT_FOUND = "Information not found in documentation."
 
 
@@ -117,18 +127,41 @@ class RAGService:
             hits = vector_store.query(repository_id, query_embedding, top_k=candidate_k)
 
         ranked = self._rerank(message, hits)
-        relevant = [h for h in ranked if h["combined_score"] >= _RELEVANCE_THRESHOLD][:top_k]
+        if embedding_provider.mode == "openrouter":
+            relevant = [
+                h for h in ranked if h["combined_score"] >= _RELEVANCE_THRESHOLD
+            ][:top_k]
+        else:
+            # Local hashing embedder — gate on a real lexical signal (name match
+            # or several distinct doc-text terms) or a very strong vector match,
+            # so off-topic questions are honestly rejected. A single incidental
+            # shared word is NOT enough.
+            relevant = [
+                h
+                for h in ranked
+                if h["name_hits"] >= _LOCAL_MIN_NAME
+                or h["text_hits"] >= _LOCAL_MIN_TEXT
+                or h["vector_score"] >= _LOCAL_STRONG_VECTOR
+            ][:top_k]
 
-        sources = [
-            {
-                "qualified_name": h["metadata"].get("qualified_name", "unknown"),
-                "relative_path": h["metadata"].get("relative_path", ""),
-                "kind": h["metadata"].get("kind", ""),
-                "score": round(h["combined_score"], 3),
-                "excerpt": truncate(h["text"], 320),
-            }
-            for h in relevant
-        ]
+        # De-duplicate by entity so multiple chunks of the same entity surface
+        # as one citation (keeping the highest-scoring chunk's excerpt).
+        sources: list[dict] = []
+        seen_sources: set[str] = set()
+        for h in relevant:
+            qn = h["metadata"].get("qualified_name", "unknown")
+            if qn in seen_sources:
+                continue
+            seen_sources.add(qn)
+            sources.append(
+                {
+                    "qualified_name": qn,
+                    "relative_path": h["metadata"].get("relative_path", ""),
+                    "kind": h["metadata"].get("kind", ""),
+                    "score": round(h["combined_score"], 3),
+                    "excerpt": truncate(h["text"], 320),
+                }
+            )
 
         if not relevant:
             return {"answer": _NOT_FOUND, "sources": [], "grounded": False}
@@ -149,14 +182,19 @@ class RAGService:
         query_tokens = _tokenize(message)
         for h in hits:
             meta = h.get("metadata", {})
-            lexical = _lexical_score(
+            lexical, name_hits, text_hits = _lexical_breakdown(
                 query_tokens,
                 meta.get("qualified_name", ""),
                 h.get("text", ""),
             )
+            # Keep the components around so the relevance gate can reason about
+            # name vs. text vs. vector evidence separately (see RAGService.chat).
+            h["vector_score"] = h.get("score", 0.0)
+            h["name_hits"] = name_hits
+            h["text_hits"] = text_hits
             # Vector score and lexical score are both ~[0, 1]; weight lexical
             # heavily because exact-name matches are the strongest signal here.
-            h["combined_score"] = h.get("score", 0.0) + 1.5 * lexical
+            h["combined_score"] = h["vector_score"] + 1.5 * lexical
         hits.sort(key=lambda x: x["combined_score"], reverse=True)
         return hits
 
@@ -183,12 +221,17 @@ class RAGService:
             return self._excerpt_answer(hits)
 
     def _excerpt_answer(self, hits: list[dict]) -> str:
-        """Graceful, honest fallback that still shows the best matching docs."""
+        """Offline answer: surface the most relevant documentation verbatim.
+
+        With no LLM configured the assistant cannot compose a prose answer, so
+        it grounds the response in the single best-matching doc excerpt rather
+        than inventing one — keeping the no-hallucination guarantee intact.
+        """
         top = hits[0]
         name = top["metadata"].get("qualified_name", "the documentation")
         return (
-            f"_(Couldn't generate an AI answer just now — showing the most "
-            f"relevant documentation for_ `{name}`_.)_\n\n{truncate(top['text'], 800)}"
+            f"_Showing the most relevant documentation for_ `{name}`_:_"
+            f"\n\n{truncate(top['text'], 800)}"
         )
 
 
@@ -237,14 +280,24 @@ def _tokenize(text: str) -> set[str]:
     return tokens
 
 
-def _lexical_score(query_tokens: set[str], qualified_name: str, text: str) -> float:
+def _lexical_breakdown(
+    query_tokens: set[str], qualified_name: str, text: str
+) -> tuple[float, float, float]:
     """Score how well a query lexically matches an entity's name and docs.
 
-    Returns roughly [0, 1]. Name matches dominate because, for code docs, the
-    entity name is the strongest relevance signal.
+    Returns ``(normalized_score, name_hits, text_hits)``:
+
+    - ``normalized_score`` is roughly [0, 1] and drives ranking. Name matches
+      dominate because, for code docs, the entity name is the strongest signal.
+    - ``name_hits`` is the *unnormalized* sum of query↔name token matches and
+      ``text_hits`` the count of distinct query terms present in the doc text.
+      Both are independent of query length, which makes them robust relevance
+      gates: a genuinely off-topic query scores 0 on both regardless of phrasing,
+      and a query that merely shares one incidental common word scores text_hits
+      of just 1 — below the gate — so it is still rejected.
     """
     if not query_tokens:
-        return 0.0
+        return 0.0, 0.0, 0.0
 
     name_tokens = _tokenize(qualified_name)
     text_tokens = _tokenize(text)
@@ -259,4 +312,5 @@ def _lexical_score(query_tokens: set[str], qualified_name: str, text: str) -> fl
     name_score = name_hits / len(query_tokens)
     text_score = text_hits / len(query_tokens)
     # Heavily favor name matches; text matches are a lighter supporting signal.
-    return min(1.0, 0.8 * name_score + 0.2 * text_score)
+    normalized = min(1.0, 0.8 * name_score + 0.2 * text_score)
+    return normalized, name_hits, text_hits

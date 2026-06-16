@@ -36,3 +36,9 @@ def test_missing_repository_returns_404():
     res = client.get("/api/repositories/999999")
     assert res.status_code == 404
     assert res.json()["error"]["code"] == "not_found"
+
+
+def test_export_missing_doc_returns_404():
+    res = client.get("/api/docs/999999/export")
+    assert res.status_code == 404
+    assert res.json()["error"]["code"] == "not_found"

@@ -1,0 +1,23 @@
+# Render Blueprint for the AI Documentation Engine backend.
+# IMPORTANT: a Render Blueprint must live at the REPOSITORY ROOT, and its paths
+# are relative to the repo root (not to any service rootDir).
+#
+# Deploy: Render Dashboard > New + > Blueprint > select this repo > Apply.
+services:
+  - type: web
+    name: docengine-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false # optional — set in the dashboard; the app works without it
+      - key: OPENROUTER_MODEL
+        value: anthropic/claude-sonnet-4-6
+      - key: CORS_ORIGINS
+        # Update to your Vercel URL after the frontend deploys (step 2).
+        value: https://your-frontend.vercel.app
+# Free plan has no persistent disk, so storage is ephemeral (DB/docs reset on
+# redeploy) — fine for a demo. For durable storage use plan: starter + a disk.

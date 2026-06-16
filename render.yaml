@@ -17,7 +17,7 @@ services:
       - key: OPENROUTER_MODEL
         value: anthropic/claude-sonnet-4-6
       - key: CORS_ORIGINS
-        # Update to your Vercel URL after the frontend deploys (step 2).
-        value: https://your-frontend.vercel.app
+        # The deployed Vercel frontend origin (already live).
+        value: https://frontend-peach-six-99.vercel.app
 # Free plan has no persistent disk, so storage is ephemeral (DB/docs reset on
 # redeploy) — fine for a demo. For durable storage use plan: starter + a disk.

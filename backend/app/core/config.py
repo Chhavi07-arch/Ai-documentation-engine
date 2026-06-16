@@ -64,8 +64,26 @@ class Settings(BaseSettings):
         default="sqlite:///./docengine.db", alias="DATABASE_URL"
     )
 
+    # --- GitHub webhook (commit-hook-driven change detection) ---
+    # When set, incoming /webhooks/github payloads must carry a valid
+    # X-Hub-Signature-256 HMAC. Empty disables verification (local/demo).
+    github_webhook_secret: str = Field(default="", alias="GITHUB_WEBHOOK_SECRET")
+    # When true, a webhook first `git fetch`+resets the local clone to the pushed
+    # commit before detecting. Off by default so detection never discards local
+    # working-tree edits unexpectedly.
+    webhook_auto_pull: bool = Field(default=False, alias="WEBHOOK_AUTO_PULL")
+
     # --- CORS ---
-    cors_origins: str = Field(default="http://localhost:3000", alias="CORS_ORIGINS")
+    # Cover both common Next.js dev ports (3000, and 3001 when 3000 is taken)
+    # on localhost and 127.0.0.1, so a clean checkout works regardless of where
+    # `next dev` lands. Override via CORS_ORIGINS in production.
+    cors_origins: str = Field(
+        default=(
+            "http://localhost:3000,http://localhost:3001,"
+            "http://127.0.0.1:3000,http://127.0.0.1:3001"
+        ),
+        alias="CORS_ORIGINS",
+    )
 
     # --- Storage directories ---
     repositories_dir: str = Field(default="../repositories", alias="REPOSITORIES_DIR")

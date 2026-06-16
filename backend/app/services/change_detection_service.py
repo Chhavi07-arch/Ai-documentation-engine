@@ -121,8 +121,21 @@ class ChangeDetectionService:
 
         Existing flags for the repo are cleared first so repeated detections are
         idempotent — the flag set always reflects the current diff vs baseline,
-        with no duplicates or stale leftovers.
+        with no duplicates or stale leftovers. Flags the user already RESOLVED
+        are remembered (by qualified_name + change_type) and stay resolved when
+        the same change is re-detected, so re-running detection never silently
+        reopens reviewed items.
         """
+        resolved_keys = {
+            (f.qualified_name, f.change_type)
+            for f in self.db.scalars(
+                select(StalenessFlag).where(
+                    StalenessFlag.repository_id == repo.id,
+                    StalenessFlag.resolved.is_(True),
+                )
+            )
+        }
+
         self.db.execute(
             delete(StalenessFlag).where(StalenessFlag.repository_id == repo.id)
         )
@@ -143,6 +156,7 @@ class ChangeDetectionService:
                     old_source=change.old_source,
                     new_source=change.new_source,
                     original_doc_markdown=original_doc,
+                    resolved=(change.qualified_name, change.change_type.value) in resolved_keys,
                 )
             )
             created += 1

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, ExternalLink, FileCode2, GitBranch } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +17,7 @@ import { toPercent } from "@/lib/utils";
 
 export default function RepositoryDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const repoId = Number(params.id);
   const { data: repo, isLoading, isError, refetch } = useRepository(repoId);
 
@@ -107,7 +108,9 @@ export default function RepositoryDetailPage() {
             <FileTree
               nodes={repo.file_tree}
               onSelectFile={(_, path) => {
-                window.location.href = `/docs?repo=${repo.id}&path=${encodeURIComponent(path)}`;
+                router.push(
+                  `/docs?repo=${repo.id}&path=${encodeURIComponent(path)}`,
+                );
               }}
             />
           )}

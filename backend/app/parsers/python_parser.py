@@ -118,7 +118,9 @@ class PythonParser(BaseParser):
             )
         ]
 
-        # Methods become their own entities, nested under the class.
+        # Methods become their own entities, nested under the class. Nested
+        # classes (e.g. Pydantic `Config`, Django `Meta`) recurse so neither the
+        # inner class nor its methods are dropped from the documentation.
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 entities.append(
@@ -128,6 +130,16 @@ class PythonParser(BaseParser):
                         relative_path=relative_path,
                         parent=qualified,
                         kind=EntityKind.METHOD,
+                        imports=imports,
+                    )
+                )
+            elif isinstance(item, ast.ClassDef):
+                entities.extend(
+                    self._build_class(
+                        item,
+                        source=source,
+                        relative_path=relative_path,
+                        parent=qualified,
                         imports=imports,
                     )
                 )

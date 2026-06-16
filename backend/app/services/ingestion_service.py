@@ -227,8 +227,20 @@ class IngestionService:
             # handles `@typing.overload` stubs and conditional redefinitions,
             # where several entities legitimately share one qualified name; the
             # final definition is the real implementation.
+            #
+            # Exception: a `@property` getter and its `@x.setter`/`@x.deleter`
+            # share one qualified name. Keep the GETTER as canonical — it carries
+            # the public read contract and the documented docstring — instead of
+            # letting the setter (which looks write-only) overwrite it.
             unique: dict[str, ParsedEntity] = {}
             for entity in pf.entities:
+                existing = unique.get(entity.qualified_name)
+                if (
+                    existing is not None
+                    and _is_property_getter(existing)
+                    and _is_property_accessor(entity)
+                ):
+                    continue
                 unique[entity.qualified_name] = entity
 
             for entity in unique.values():
@@ -278,3 +290,13 @@ class IngestionService:
         repo.status = RepositoryStatus.FAILED.value
         repo.error_message = message
         self.db.commit()
+
+
+def _is_property_getter(entity: ParsedEntity) -> bool:
+    """True if the entity is a ``@property`` getter."""
+    return any(d == "property" or d.endswith(".getter") for d in entity.decorators)
+
+
+def _is_property_accessor(entity: ParsedEntity) -> bool:
+    """True if the entity is a ``@x.setter`` or ``@x.deleter`` accessor."""
+    return any(d.endswith(".setter") or d.endswith(".deleter") for d in entity.decorators)

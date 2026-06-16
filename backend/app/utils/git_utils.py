@@ -67,6 +67,32 @@ def read_local_commit(path: Path) -> str | None:
         return None
 
 
+def update_local_clone(path: Path) -> str | None:
+    """Fetch and hard-reset a local clone to its remote default branch.
+
+    Used by the GitHub webhook (opt-in) to bring the working copy up to the
+    pushed commit before change detection. Returns the new HEAD sha, or ``None``
+    if the path is not a git repo or the update fails (caller proceeds with the
+    existing working tree). DESTRUCTIVE: discards local working-tree edits.
+    """
+    try:
+        repo = Repo(path)
+    except Exception:
+        return None
+    try:
+        origin = repo.remotes.origin
+        origin.fetch(prune=True)
+        try:
+            branch = repo.active_branch.name
+            ref = f"origin/{branch}"
+        except (TypeError, ValueError):
+            ref = "origin/HEAD"
+        repo.git.reset("--hard", ref)
+        return repo.head.commit.hexsha
+    except GitCommandError as exc:  # pragma: no cover - network/clone dependent
+        raise IngestionError(f"Failed to update local clone: {exc.status}") from exc
+
+
 def get_repo_metadata(repo: Repo) -> dict:
     """Extract lightweight metadata from a cloned repo."""
     default_branch = "main"

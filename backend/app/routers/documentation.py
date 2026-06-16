@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
+
 from fastapi import APIRouter, Depends
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
 from app.core.database import get_db
-from app.models import Documentation
+from app.models import CodeEntity, Documentation
 from app.routers.converters import entity_to_read
 from app.schemas.documentation import (
     DocumentationRead,
@@ -17,6 +21,7 @@ from app.schemas.documentation import (
 )
 from app.services.doc_generation_service import DocGenerationService
 from app.services.rag_service import RAGService
+from app.utils import safe_filename
 
 router = APIRouter(tags=["documentation"])
 
@@ -73,3 +78,50 @@ def get_doc(entity_id: int, db: Session = Depends(get_db)) -> DocumentationRead:
     if doc is None:
         raise NotFoundError(f"No documentation found for entity {entity_id}.")
     return _to_read(db, doc)
+
+
+@router.get(
+    "/docs/{entity_id}/export",
+    summary="Download an entity's documentation as a Markdown file",
+)
+def export_doc(entity_id: int, db: Session = Depends(get_db)) -> Response:
+    doc = db.scalars(
+        select(Documentation).where(Documentation.entity_id == entity_id)
+    ).first()
+    if doc is None:
+        raise NotFoundError(f"No documentation found for entity {entity_id}.")
+    entity = db.get(CodeEntity, entity_id)
+    name = safe_filename(entity.qualified_name) if entity else f"entity_{entity_id}"
+    return Response(
+        content=doc.content_markdown or "",
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}.md"'},
+    )
+
+
+@router.get(
+    "/repositories/{repository_id}/docs/export",
+    summary="Download all of a repository's documentation as a zip archive",
+)
+def export_repository_docs(repository_id: int, db: Session = Depends(get_db)) -> Response:
+    docs = list(
+        db.scalars(
+            select(Documentation).where(Documentation.repository_id == repository_id)
+        ).all()
+    )
+    if not docs:
+        raise NotFoundError(f"No documentation to export for repository {repository_id}.")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for doc in docs:
+            entity = db.get(CodeEntity, doc.entity_id)
+            name = safe_filename(entity.qualified_name) if entity else f"entity_{doc.entity_id}"
+            archive.writestr(f"{name}.md", doc.content_markdown or "")
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="repo_{repository_id}_docs.zip"'
+        },
+    )

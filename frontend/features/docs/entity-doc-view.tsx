@@ -1,8 +1,9 @@
 "use client";
 
-import { BookOpen, Code2, FileText, Hash } from "lucide-react";
+import { BookOpen, Code2, Download, FileText, Hash } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,6 +12,7 @@ import { EmptyState } from "@/components/shared/states";
 import { KindIcon } from "@/components/shared/kind-icon";
 import { Markdown } from "@/components/shared/markdown";
 import { useDoc, useEntity } from "@/hooks/use-docengine";
+import { API_URL } from "@/lib/api";
 import type { EntityRead } from "@/types";
 
 /**
@@ -75,6 +77,11 @@ export function EntityDocView({ entity }: { entity: EntityRead }) {
                   <span className="text-xs text-muted-foreground">
                     v{doc.data.version}
                   </span>
+                  <Button asChild variant="ghost" size="sm" className="ml-auto">
+                    <a href={`${API_URL}/docs/${entity.id}/export`}>
+                      <Download className="h-3.5 w-3.5" /> Download .md
+                    </a>
+                  </Button>
                 </div>
                 <Markdown content={doc.data.content_markdown} />
               </CardContent>

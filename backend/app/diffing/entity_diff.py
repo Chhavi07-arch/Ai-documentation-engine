@@ -9,6 +9,8 @@ identical.
 
 from __future__ import annotations
 
+import ast
+import hashlib
 import json
 from dataclasses import dataclass
 
@@ -123,7 +125,12 @@ def _classify_modification(old: EntityState, new: EntityState) -> tuple[ChangeTy
             "Signature changed (types/defaults); documentation may be inaccurate.",
         )
 
-    if old.body_hash != new.body_hash:
+    # Compare the body *excluding the signature line and the docstring* so that
+    # (a) a docstring-only edit is classified as DOCSTRING_CHANGED rather than
+    # being swallowed by BODY_MODIFIED, and (b) a real implementation change is
+    # still caught. (The stored body_hash hashes the full source — including the
+    # docstring — which makes the docstring branch below otherwise unreachable.)
+    if _body_signature(old) != _body_signature(new):
         return (
             ChangeType.BODY_MODIFIED,
             "Implementation changed; behavior/examples may need review.",
@@ -195,12 +202,76 @@ def _find_rename(
     new_by_name: dict[str, EntityState],
     old_by_name: dict[str, EntityState],
 ) -> EntityState | None:
-    """Find an added entity whose body matches a deleted entity (a rename)."""
+    """Find an added entity whose body matches a deleted entity (a rename).
+
+    Matches on a *name-independent* body signature: the full ``source_code``
+    (and thus ``body_hash``) includes the ``def``/``class`` line, whose name
+    differs across a rename, so comparing it would never match a real rename.
+    """
+    old_body = _body_signature(old_state)
+    if old_body in _TRIVIAL_BODIES:
+        return None  # too trivial to be a confident rename signal
     for name, candidate in new_by_name.items():
         if name in old_by_name:
             continue  # already existed — not an addition
         if candidate.kind != old_state.kind:
             continue
-        if candidate.body_hash == old_state.body_hash and old_state.body_hash:
+        if _body_signature(candidate) == old_body:
             return candidate
     return None
+
+
+# --- name/docstring-independent body signature -----------------------------
+
+# Bodies too trivial to be a confident rename signal (many entities share them).
+_TRIVIAL_BODIES = {"", "pass", "...", "return", "return None", "raise NotImplementedError"}
+
+
+def _body_signature(state: EntityState) -> str:
+    """A hash of an entity's body, excluding its signature line and docstring.
+
+    Used so renames (same body, new name) match and docstring-only edits don't
+    register as body changes. Falls back to hashing the raw source when the
+    stored segment can't be re-parsed (e.g. synthetic test fixtures).
+    """
+    src = state.source_code or ""
+    try:
+        tree = ast.parse(src)
+    except (SyntaxError, ValueError):
+        return _norm_hash(src)
+
+    if state.kind in ("function", "method", "class"):
+        node = next(
+            (n for n in tree.body
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))),
+            None,
+        )
+        body = node.body if node is not None else list(tree.body)
+    else:  # module
+        body = list(tree.body)
+
+    # Drop a leading docstring expression.
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(getattr(body[0], "value", None), ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+
+    try:
+        return _norm_hash("\n".join(ast.unparse(stmt) for stmt in body).strip())
+    except Exception:  # pragma: no cover - defensive
+        return _norm_hash(src)
+
+
+def _norm_hash(text: str) -> str:
+    """Return the trimmed text itself when trivial, else its sha256.
+
+    Returning the raw text for short bodies lets :data:`_TRIVIAL_BODIES`
+    membership checks work directly on the signature.
+    """
+    trimmed = text.strip()
+    if trimmed in _TRIVIAL_BODIES:
+        return trimmed
+    return hashlib.sha256(trimmed.encode("utf-8")).hexdigest()

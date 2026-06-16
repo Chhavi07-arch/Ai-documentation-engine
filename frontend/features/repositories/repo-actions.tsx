@@ -1,12 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { BookOpen, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { BookOpen, Download, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useDetectChanges, useGenerateDocs } from "@/hooks/use-docengine";
-import { ApiError } from "@/lib/api";
+import { ApiError, API_URL } from "@/lib/api";
 
 /**
  * Primary actions for a repository: generate documentation, detect changes, and
@@ -73,6 +73,12 @@ export function RepoActions({ repositoryId }: { repositoryId: number }) {
       >
         <BookOpen className="h-4 w-4" />
         Open docs
+      </Button>
+      <Button asChild variant="ghost">
+        <a href={`${API_URL}/repositories/${repositoryId}/docs/export`}>
+          <Download className="h-4 w-4" />
+          Export docs
+        </a>
       </Button>
     </div>
   );

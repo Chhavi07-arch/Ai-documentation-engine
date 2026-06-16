@@ -8,7 +8,7 @@ tree. Each test uses a throwaway directory as the repository's working copy.
 from pathlib import Path
 
 from app.core.database import SessionLocal
-from app.models import Repository, StalenessFlag
+from app.models import CodeEntity, Repository, StalenessFlag
 from app.models.enums import ChangeType, RepositoryStatus, StalenessSeverity
 from app.services.change_detection_service import ChangeDetectionService
 from app.services.ingestion_service import IngestionService
@@ -155,6 +155,65 @@ def test_detection_is_cumulative_and_stable(tmp_path: Path):
     third = svc.detect_changes(repo.id)
     assert len(third["changes"]) == len(second["changes"])
     assert third["flags_created"] == second["flags_created"]
+    db.close()
+
+
+def test_resolved_flag_survives_redetection(tmp_path: Path):
+    """Re-running detection must not silently reopen a flag the user resolved."""
+    db = SessionLocal()
+    repo = _make_repo(db, tmp_path)
+    (tmp_path / "c.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    _baseline(db, repo)
+
+    (tmp_path / "c.py").write_text("def f():\n    return 2\n", encoding="utf-8")
+    svc = ChangeDetectionService(db)
+    svc.detect_changes(repo.id)
+
+    flag = db.scalars(
+        select(StalenessFlag).where(StalenessFlag.qualified_name == "c.f")
+    ).first()
+    assert flag is not None
+    flag.resolved = True
+    db.commit()
+
+    # Re-detect with the same edit still present — the flag must stay resolved.
+    svc.detect_changes(repo.id)
+    flags = list(
+        db.scalars(select(StalenessFlag).where(StalenessFlag.qualified_name == "c.f")).all()
+    )
+    assert flags and all(f.resolved for f in flags)
+    db.close()
+
+
+def test_property_getter_is_preferred_over_setter(tmp_path: Path):
+    """A @property getter must survive ingestion dedup, not be overwritten by its
+    setter — so docs describe the public read contract, not a write-only setter."""
+    db = SessionLocal()
+    repo = _make_repo(db, tmp_path)
+    (tmp_path / "p.py").write_text(
+        "class C:\n"
+        "    @property\n"
+        "    def value(self):\n"
+        '        """Read the value."""\n'
+        "        return self._v\n"
+        "    @value.setter\n"
+        "    def value(self, v):\n"
+        "        self._v = v\n",
+        encoding="utf-8",
+    )
+    IngestionService(db).ingest_local(repo)
+
+    entity = db.scalars(
+        select(CodeEntity).where(
+            CodeEntity.repository_id == repo.id,
+            CodeEntity.qualified_name == "p.C.value",
+        )
+    ).first()
+    assert entity is not None
+    assert "property" in (entity.decorators_json or "")
+    # The getter takes only `self` — the setter's `v` parameter must not appear.
+    assert '"v"' not in (entity.parameters_json or "")
+    assert entity.docstring == "Read the value."
     db.close()
 
 

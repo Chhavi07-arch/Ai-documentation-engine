@@ -27,6 +27,9 @@ export const queryKeys = {
   docs: (id: number) => ["docs", id] as const,
   doc: (entityId: number) => ["doc", entityId] as const,
   staleDocs: (id?: number) => ["stale-docs", id ?? null] as const,
+  // Prefix key: invalidating this matches every ["stale-docs", *] query
+  // (all repo filters at once) — use it after detect/resolve mutations.
+  staleDocsAll: ["stale-docs"] as const,
 };
 
 // Repositories that are still processing should be polled until ready/failed.
@@ -140,8 +143,7 @@ export function useDetectChanges(repositoryId: number) {
   return useMutation({
     mutationFn: () => docengine.detectChanges(repositoryId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.staleDocs() });
-      qc.invalidateQueries({ queryKey: queryKeys.staleDocs(repositoryId) });
+      qc.invalidateQueries({ queryKey: queryKeys.staleDocsAll });
       qc.invalidateQueries({ queryKey: queryKeys.stats });
     },
   });
@@ -158,7 +160,7 @@ export function useResolveFlag() {
   return useMutation({
     mutationFn: (flagId: number) => docengine.resolveFlag(flagId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.staleDocs() });
+      qc.invalidateQueries({ queryKey: queryKeys.staleDocsAll });
       qc.invalidateQueries({ queryKey: queryKeys.stats });
     },
   });

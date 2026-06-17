@@ -1,23 +1,24 @@
-# Render Blueprint for the AI Documentation Engine backend.
-# IMPORTANT: a Render Blueprint must live at the REPOSITORY ROOT, and its paths
-# are relative to the repo root (not to any service rootDir).
-#
+# Render Blueprint (must live at the repo root).
+# Uses Render's NATIVE PYTHON runtime — no Docker, no Dockerfile path issues.
 # Deploy: Render Dashboard > New + > Blueprint > select this repo > Apply.
 services:
   - type: web
     name: docengine-backend
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    runtime: python
+    rootDir: backend            # build + start commands run from ./backend
     plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: OPENROUTER_API_KEY
         sync: false # optional — set in the dashboard; the app works without it
       - key: OPENROUTER_MODEL
         value: anthropic/claude-sonnet-4-6
       - key: CORS_ORIGINS
-        # The deployed Vercel frontend origin (already live).
         value: https://frontend-peach-six-99.vercel.app
-# Free plan has no persistent disk, so storage is ephemeral (DB/docs reset on
-# redeploy) — fine for a demo. For durable storage use plan: starter + a disk.
+# Free plan storage is ephemeral (SQLite DB + generated docs reset on redeploy)
+# — fine for a demo. git is available in Render's native env, so repo cloning
+# (GitPython) works without any extra setup.

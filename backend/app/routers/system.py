@@ -25,6 +25,7 @@ class ConfigResponse(BaseModel):
     ai_enabled: bool
     model: str
     embedding_mode: str  # "openrouter" when a key is set, else "local"
+    database: str  # "postgresql" (persistent) or "sqlite" (ephemeral)
 
 
 class DashboardStats(BaseModel):
@@ -45,11 +46,14 @@ def health() -> HealthResponse:
 
 @router.get("/config", response_model=ConfigResponse, summary="AI configuration status")
 def config() -> ConfigResponse:
+    from app.core.database import engine
+
     use_remote_embeddings = settings.use_openrouter_embeddings and ai_service.enabled
     return ConfigResponse(
         ai_enabled=ai_service.enabled,
         model=settings.openrouter_model,
         embedding_mode="openrouter" if use_remote_embeddings else "local",
+        database=engine.dialect.name,
     )
 
 

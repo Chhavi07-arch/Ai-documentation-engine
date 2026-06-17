@@ -1,6 +1,12 @@
 # Render Blueprint (must live at the repo root).
-# Uses Render's NATIVE PYTHON runtime — no Docker, no Dockerfile path issues.
+# Native Python runtime (no Docker) + a managed Postgres DB so ingested repos
+# and generated docs PERSIST across restarts (Render's instance disk is
+# ephemeral, which would otherwise wipe a local SQLite file on every restart).
 # Deploy: Render Dashboard > New + > Blueprint > select this repo > Apply.
+databases:
+  - name: docengine-db
+    plan: free
+
 services:
   - type: web
     name: docengine-backend
@@ -11,6 +17,10 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: docengine-db
+          property: connectionString
       - key: PYTHON_VERSION
         value: "3.11.9"
       - key: OPENROUTER_API_KEY
@@ -19,6 +29,6 @@ services:
         value: anthropic/claude-sonnet-4-6
       - key: CORS_ORIGINS
         value: https://frontend-peach-six-99.vercel.app
-# Free plan storage is ephemeral (SQLite DB + generated docs reset on redeploy)
-# — fine for a demo. git is available in Render's native env, so repo cloning
-# (GitPython) works without any extra setup.
+# Note: the generated-docs vector index and the cloned repo checkouts still live
+# on the ephemeral instance disk. Docs/repos/flags persist in Postgres; the chat
+# index re-builds itself from those docs on demand after a restart.

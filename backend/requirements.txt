@@ -6,6 +6,9 @@ uvicorn[standard]==0.32.1
 sqlalchemy==2.0.36
 pydantic==2.10.3
 pydantic-settings==2.6.1
+# Postgres driver — used in production (Render) for persistent storage; SQLite
+# (the default) needs no driver. Harmless when DATABASE_URL is sqlite.
+psycopg2-binary==2.9.10
 
 # --- Git ingestion ---
 GitPython==3.1.43

@@ -52,6 +52,12 @@ export const docengine = {
     api.post<DetectChangesResponse>("/detect-changes", {
       repository_id: repositoryId,
     }),
+  // Pull the latest commits from GitHub first, THEN detect — so changes pushed
+  // to the remote (the common case on a deployed instance) are picked up.
+  syncAndDetect: (repositoryId: number) =>
+    api.post<DetectChangesResponse>("/sync-and-detect", {
+      repository_id: repositoryId,
+    }),
   listStaleDocs: (repositoryId?: number) =>
     api.get<StalenessFlag[]>(
       `/stale-docs${repositoryId ? `?repository_id=${repositoryId}` : ""}`,

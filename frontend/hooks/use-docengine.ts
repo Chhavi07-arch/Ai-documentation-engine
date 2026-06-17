@@ -141,7 +141,9 @@ export function useGenerateDocs(repositoryId: number) {
 export function useDetectChanges(repositoryId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => docengine.detectChanges(repositoryId),
+    // Sync from GitHub first, then detect — picks up commits pushed to the
+    // remote (what users expect after editing their repo on a deployed app).
+    mutationFn: () => docengine.syncAndDetect(repositoryId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.staleDocsAll });
       qc.invalidateQueries({ queryKey: queryKeys.stats });

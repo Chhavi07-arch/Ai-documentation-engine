@@ -18,16 +18,21 @@ class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
 
+# Managed Postgres providers (e.g. Render) hand out ``postgres://`` URLs, but
+# SQLAlchemy 2.0 requires the ``postgresql://`` scheme. Normalize so the same
+# code runs on SQLite locally and Postgres in production.
+_DB_URL = settings.database_url
+if _DB_URL.startswith("postgres://"):
+    _DB_URL = "postgresql://" + _DB_URL[len("postgres://"):]
+
+_IS_SQLITE = _DB_URL.startswith("sqlite")
+
 # `check_same_thread` is required for SQLite when used with FastAPI's
 # threadpool. For other databases it is simply ignored.
-_connect_args = (
-    {"check_same_thread": False}
-    if settings.database_url.startswith("sqlite")
-    else {}
-)
+_connect_args = {"check_same_thread": False} if _IS_SQLITE else {}
 
 engine = create_engine(
-    settings.database_url,
+    _DB_URL,
     connect_args=_connect_args,
     pool_pre_ping=True,
 )
@@ -35,7 +40,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
-if settings.database_url.startswith("sqlite"):
+if _IS_SQLITE:
 
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:

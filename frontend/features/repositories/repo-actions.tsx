@@ -37,14 +37,22 @@ export function RepoActions({ repositoryId }: { repositoryId: number }) {
         toast.success("Baseline snapshot created", {
           description: "Future detections will compare against this snapshot.",
         });
+      } else if (res.changes.length === 0) {
+        toast.success("Up to date", {
+          description:
+            "Pulled the latest commit from GitHub — no changes since the docs were generated.",
+        });
       } else {
-        toast.success("Change detection complete", {
-          description: `${res.changes.length} changes, ${res.flags_created} flags created.`,
+        toast.success("Synced & detected changes", {
+          description: `${res.changes.length} changes, ${res.flags_created} docs flagged stale.`,
         });
       }
     } catch (err) {
-      toast.error("Detection failed", {
-        description: err instanceof ApiError ? err.message : "Unexpected error.",
+      toast.error("Sync failed", {
+        description:
+          err instanceof ApiError
+            ? err.message
+            : "Could not pull from GitHub. Re-ingest the repository and try again.",
       });
     }
   };
@@ -65,7 +73,7 @@ export function RepoActions({ repositoryId }: { repositoryId: number }) {
         ) : (
           <RefreshCw className="h-4 w-4" />
         )}
-        Detect changes
+        Sync &amp; detect changes
       </Button>
       <Button
         variant="ghost"

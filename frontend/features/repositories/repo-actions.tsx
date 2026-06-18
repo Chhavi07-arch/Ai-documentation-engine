@@ -20,9 +20,19 @@ export function RepoActions({ repositoryId }: { repositoryId: number }) {
   const onGenerate = async () => {
     try {
       const res = await generate.mutateAsync(false);
-      toast.success("Documentation generated", {
-        description: `${res.generated} entities documented (${res.generator}).`,
-      });
+      if (res.generated > 0) {
+        toast.success("Documentation generated", {
+          description: `${res.generated} entities documented (${res.generator}). Open “Docs” to view them.`,
+        });
+      } else if (res.skipped > 0) {
+        toast.success("Already documented", {
+          description: `All ${res.skipped} entities already have docs — open “Docs” to view them.`,
+        });
+      } else {
+        toast.error("Nothing to document", {
+          description: "No Python code entities were found in this repository.",
+        });
+      }
     } catch (err) {
       toast.error("Generation failed", {
         description: err instanceof ApiError ? err.message : "Unexpected error.",

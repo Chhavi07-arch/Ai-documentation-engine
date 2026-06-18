@@ -122,6 +122,29 @@ class IngestionService:
             return Path(repo.local_path)
         return settings.repositories_path / f"repo_{repo.id}"
 
+    def ensure_local_copy(self, repo: Repository) -> Path:
+        """Guarantee an on-disk working copy exists, re-cloning if it's gone.
+
+        The checkout can vanish between requests on hosts with ephemeral disks
+        (e.g. Render wipes the filesystem on restart) while the Repository row —
+        including its URL — survives in the database. Rather than dead-ending
+        callers with "re-ingest first", transparently re-clone from the recorded
+        URL; the fresh clone lands at remote HEAD. Cloning happens ONLY when the
+        path is absent, so an existing working copy (with any local edits) is
+        never disturbed. Returns the resolved working-copy path.
+        """
+        local_path = self.local_working_path(repo)
+        if local_path.exists():
+            return local_path
+        logger.info(
+            "Working copy missing for %s; re-cloning from %s.",
+            repo.full_name, repo.url,
+        )
+        clone_repository(repo.url, local_path)
+        repo.local_path = str(local_path)
+        self.db.commit()
+        return local_path
+
     def parse_local_tree(self, repo: Repository) -> tuple[list[ParsedFile], dict]:
         """Parse the CURRENT local working copy without touching git at all.
 
@@ -172,10 +195,15 @@ class IngestionService:
             raise NotFoundError(f"Repository {repository_id} not found.")
         local_path = self.local_working_path(repo)
         if not local_path.exists():
-            raise IngestionError(
-                "Local working copy not found. Re-ingest the repository first."
-            )
-        new_sha = fetch_latest(local_path, repo.default_branch)
+            # The checkout is gone (e.g. the host's ephemeral disk was wiped on
+            # restart) but the Repository row — including its URL — survives in
+            # the database. Re-clone transparently instead of dead-ending: the
+            # fresh clone lands at remote HEAD, which is exactly what a sync
+            # wants.
+            cloned_path = self.ensure_local_copy(repo)
+            new_sha = read_local_commit(cloned_path)
+        else:
+            new_sha = fetch_latest(local_path, repo.default_branch)
         logger.info(
             "Synced %s from remote → %s", repo.full_name, (new_sha or "?")[:8]
         )

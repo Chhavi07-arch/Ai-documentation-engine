@@ -60,6 +60,11 @@ class ChangeDetectionService:
         # then add fingerprints for tracked documentation files (README/*.md,
         # *.rst) so content edits to them are detected alongside code changes.
         ingestion = IngestionService(self.db)
+        # Self-heal if the working copy was wiped (e.g. ephemeral disk on
+        # restart): re-clone from the recorded URL so detection never dead-ends
+        # with "re-ingest first". No-op when the checkout is present, so local
+        # edits are preserved.
+        ingestion.ensure_local_copy(repo)
         parsed_files, metadata = ingestion.parse_local_tree(repo)
         new_states = states_from_parsed(parsed_files) + doc_states_from_tree(
             ingestion.local_working_path(repo)

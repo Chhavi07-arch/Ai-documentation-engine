@@ -180,4 +180,5 @@ export interface AppConfig {
   database?: string;
   auto_detect_enabled?: boolean;
   auto_detect_interval_seconds?: number;
+  auto_detect_sync_remote?: boolean;
 }

@@ -29,13 +29,14 @@ services:
         value: anthropic/claude-sonnet-4-6
       - key: CORS_ORIGINS
         value: https://frontend-peach-six-99.vercel.app
-      # Background polling that auto-detects stale docs. Off by default; flip to
-      # "true" in the dashboard to enable. With SYNC_REMOTE=true each sweep also
-      # git-fetches the latest commits, so pushes are picked up automatically.
+      # Background polling that auto-detects stale docs. Enabled here: every
+      # interval the sweep git-fetches the latest commits (SYNC_REMOTE=true) and
+      # re-runs change detection, so pushes to GitHub surface as stale-doc flags
+      # automatically — no manual "Detect changes" needed.
       - key: AUTO_DETECT_ENABLED
-        value: "false"
+        value: "true"
       - key: AUTO_DETECT_INTERVAL_SECONDS
-        value: "300"
+        value: "120"
       - key: AUTO_DETECT_SYNC_REMOTE
         value: "true"
 # Note: the generated-docs vector index and the cloned repo checkouts still live

@@ -23,6 +23,7 @@ export default function StalePage() {
   const flags = useStaleDocs(repoId ?? undefined);
   const autoOn = config.data?.auto_detect_enabled;
   const autoEvery = config.data?.auto_detect_interval_seconds;
+  const autoFetch = config.data?.auto_detect_sync_remote;
 
   const [active, setActive] = React.useState<StalenessFlag | null>(null);
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -54,8 +55,9 @@ export default function StalePage() {
           <RadioTower className="h-4 w-4 animate-pulse text-primary" />
           <span>
             Auto-detection is <span className="font-medium text-foreground">on</span>
-            {autoEvery ? ` — re-checking every ${autoEvery}s` : ""}. New stale docs
-            appear here automatically.
+            {autoEvery ? ` — re-checking every ${autoEvery}s` : ""}
+            {autoFetch ? ", pulling the latest from GitHub first" : ""}. New stale
+            docs appear here automatically.
           </span>
         </div>
       ) : null}

@@ -28,6 +28,7 @@ class ConfigResponse(BaseModel):
     database: str  # "postgresql" (persistent) or "sqlite" (ephemeral)
     auto_detect_enabled: bool  # background polling for stale docs is active
     auto_detect_interval_seconds: int  # how often the sweep runs
+    auto_detect_sync_remote: bool  # sweep also git-fetches the latest from GitHub
 
 
 class DashboardStats(BaseModel):
@@ -58,6 +59,7 @@ def config() -> ConfigResponse:
         database=engine.dialect.name,
         auto_detect_enabled=settings.auto_detect_enabled,
         auto_detect_interval_seconds=settings.auto_detect_interval_seconds,
+        auto_detect_sync_remote=settings.auto_detect_sync_remote,
     )
 
 

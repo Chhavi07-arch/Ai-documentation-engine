@@ -20,7 +20,7 @@ from app.core.exceptions import IngestionError, NotFoundError
 from app.core.logging import get_logger
 from app.models import CodeEntity, Repository, SourceFile
 from app.models.enums import RepositoryStatus
-from app.parsers import PythonParser
+from app.parsers import ParserRegistry
 from app.parsers.base import ParsedEntity, ParsedFile
 from app.services.snapshot_service import SnapshotService
 from app.services.states import (
@@ -42,11 +42,17 @@ logger = get_logger("docengine.ingest")
 
 
 class IngestionService:
-    """Clone a repository and index its Python source into the database."""
+    """Clone a repository and index its source code into the database.
+
+    Supports many languages: Python (via the stdlib ``ast``) and every language
+    in the tree-sitter registry (JavaScript, TypeScript, Java, Go, Rust, Ruby,
+    C/C++, C#, PHP, …). The :class:`ParserRegistry` dispatches each file to the
+    right parser by extension, so this service stays language-agnostic.
+    """
 
     def __init__(self, db: Session) -> None:
         self.db = db
-        self.parser = PythonParser()
+        self.registry = ParserRegistry()
 
     def create_repository(self, url: str) -> Repository:
         """Create the repository row (status=PENDING) before processing."""
@@ -77,8 +83,9 @@ class IngestionService:
             self._set_status(repo, RepositoryStatus.PARSING)
             if not parsed_files:
                 raise IngestionError(
-                    "No Python source files found in this repository (MVP supports "
-                    "Python repositories only)."
+                    "No supported source files found in this repository. Supported "
+                    "languages include Python, JavaScript/TypeScript, Java, Go, Rust, "
+                    "Ruby, C/C++, C#, and PHP."
                 )
 
             self._replace_entities(repo, parsed_files)
@@ -99,7 +106,7 @@ class IngestionService:
             raise IngestionError("Unexpected error during ingestion.") from exc
 
     def clone_and_parse(self, repo: Repository) -> tuple[list[ParsedFile], dict]:
-        """Clone the repository from GitHub and parse its Python files.
+        """Clone the repository from GitHub and parse its source files.
 
         DESTRUCTIVE: this removes and re-clones the local working copy, so it is
         only used during full (re-)ingestion. Change detection must NOT use this
@@ -227,8 +234,11 @@ class IngestionService:
 
     def _scan_and_parse(self, root: Path) -> list[ParsedFile]:
         parsed: list[ParsedFile] = []
-        for path in self._iter_python_files(root):
+        for path in self._iter_source_files(root):
             relative = path.relative_to(root).as_posix()
+            parser = self.registry.parser_for(relative)
+            if parser is None:
+                continue
             try:
                 source = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
@@ -236,15 +246,26 @@ class IngestionService:
                 continue
             module_path = self._module_path(relative)
             parsed.append(
-                self.parser.parse_file(
+                parser.parse_file(
                     source=source, relative_path=relative, module_path=module_path
                 )
             )
         return parsed
 
-    def _iter_python_files(self, root: Path):
-        for path in sorted(root.rglob("*.py")):
-            if any(part in _SKIP_DIRS for part in path.relative_to(root).parts):
+    def _iter_source_files(self, root: Path):
+        """Yield every supported source file under ``root`` (any language).
+
+        Walks the tree once and keeps only files whose extension a parser in the
+        registry can handle, skipping vendored/hidden dirs and oversized files.
+        """
+        supported = self.registry.supported_extensions
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            rel_parts = path.relative_to(root).parts
+            if any(part in _SKIP_DIRS for part in rel_parts):
+                continue
+            if path.suffix.lower() not in supported:
                 continue
             try:
                 if path.stat().st_size > _MAX_FILE_BYTES:
@@ -254,8 +275,14 @@ class IngestionService:
             yield path
 
     def _module_path(self, relative_path: str) -> str:
-        """Convert a relative file path to a dotted module path."""
-        without_ext = relative_path[:-3] if relative_path.endswith(".py") else relative_path
+        """Convert a relative file path to a dotted module-style path.
+
+        Language-agnostic: strips the file's extension and joins path segments
+        with dots so every entity gets a stable, unique qualified name regardless
+        of language (e.g. ``src/api/users.ts`` → ``src.api.users``).
+        """
+        suffix = Path(relative_path).suffix
+        without_ext = relative_path[: -len(suffix)] if suffix else relative_path
         parts = [p for p in without_ext.split("/") if p]
         if parts and parts[-1] == "__init__":
             parts = parts[:-1]

@@ -30,7 +30,7 @@ export function RepoActions({ repositoryId }: { repositoryId: number }) {
         });
       } else {
         toast.error("Nothing to document", {
-          description: "No Python code entities were found in this repository.",
+          description: "No supported code entities were found in this repository.",
         });
       }
     } catch (err) {

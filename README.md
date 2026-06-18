@@ -10,8 +10,8 @@ A production-style, full-stack MVP that behaves like a real developer-productivi
 
 | # | Feature | What it does |
 |---|---------|--------------|
-| 1 | **GitHub ingestion** | Clone & validate a public GitHub repo, scan Python source, build a file tree (GitPython). |
-| 2 | **AST parsing engine** | Extract functions, classes, methods, params, return types, decorators, docstrings, imports, async flags & type hints — never executes code. |
+| 1 | **GitHub ingestion** | Clone & validate a public GitHub repo, scan its source across many languages, build a file tree (GitPython). |
+| 2 | **Multi-language parsing engine** | Extract functions, classes, methods, params, return types, decorators, docstrings, async flags & type hints — for Python (stdlib `ast`) and JavaScript/TypeScript, Java, Go, Rust, Ruby, C/C++, C#, PHP (tree-sitter). Never executes code. |
 | 3 | **AI documentation** | Generate professional, handbook-style Markdown (overview, params, returns, raises, side effects, examples, edge cases) per entity. |
 | 4 | **Change detection** | Structural, AST-aware snapshot diffing: signature/param/return/body changes, renames, additions, deletions — not naive text diffing. |
 | 5 | **Staleness engine** | Classifies impacted docs as `BROKEN`, `POTENTIALLY_OUTDATED`, or `REVIEW_RECOMMENDED` with color-coded badges. |
@@ -115,7 +115,7 @@ npm run dev
 App runs at **http://localhost:3000**.
 
 ### 3) Try it
-1. Click **Add repository** and paste a public Python GitHub URL (e.g. `https://github.com/psf/requests`).
+1. Click **Add repository** and paste any public GitHub URL (e.g. `https://github.com/psf/requests` for Python, or a JS/TS/Go/Java/Rust repo).
 2. Wait for status → **Ready**, then hit **Generate docs**.
 3. Explore docs, open **AI Chat**, or run **Detect changes** → **Stale Center**.
 
@@ -195,7 +195,7 @@ Chat:     question → embed → retrieve top-k chunks → grounded LLM answer +
 
 ## 📝 Notes & Scope
 
-- **MVP scope:** Python repositories. The parser layer is abstracted (`BaseParser`) so additional languages can be added without touching the rest of the system.
+- **Languages:** Python, JavaScript/TypeScript (incl. JSX/TSX), Java, Go, Rust, Ruby, C/C++, C#, and PHP. The parser layer is abstracted (`BaseParser` + a `ParserRegistry`): Python uses the stdlib `ast`; every other language uses tree-sitter, driven by a declarative spec — so adding a language is usually just one more entry.
 - **Safety:** repository URLs are validated, files are size-bounded, vendored/hidden dirs are skipped, and **code is never executed** — only its AST is analyzed.
 - Generated artifacts (`docs_storage/`, `vector_storage/`, `repositories/`, `*.db`) are gitignored.
 

@@ -13,6 +13,12 @@ psycopg2-binary==2.9.10
 # --- Git ingestion ---
 GitPython==3.1.43
 
+# --- Multi-language parsing (tree-sitter) ---
+# Prebuilt, compiler-free wheels bundling grammars for JS/TS, Java, Go, Rust,
+# Ruby, C/C++, C#, PHP, and more. Python itself is parsed with the stdlib `ast`.
+tree-sitter==0.25.2
+tree-sitter-language-pack==0.13.0
+
 # --- HTTP client for OpenRouter ---
 httpx==0.28.1
 

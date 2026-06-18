@@ -93,7 +93,7 @@ export default function RepositoryDetailPage() {
               title="No files indexed yet"
               description={
                 repo.status === "ready"
-                  ? "No Python files were found in this repository."
+                  ? "No supported source files were found in this repository."
                   : "Files appear here once ingestion completes."
               }
             />

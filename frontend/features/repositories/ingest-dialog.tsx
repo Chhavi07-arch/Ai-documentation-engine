@@ -59,7 +59,8 @@ export function IngestDialog({ trigger }: { trigger?: React.ReactNode }) {
         <DialogHeader>
           <DialogTitle>Ingest a GitHub repository</DialogTitle>
           <DialogDescription>
-            Paste a public GitHub URL. The MVP supports Python repositories.
+            Paste a public GitHub URL. Supports Python, JavaScript/TypeScript,
+            Java, Go, Rust, Ruby, C/C++, C#, and PHP.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">

@@ -29,6 +29,58 @@ _SEVERITY_RANK = {
     StalenessSeverity.REVIEW_RECOMMENDED.value: 2,
 }
 
+# Friendly, plain-English labels for each severity (shown in the fallback draft).
+_SEVERITY_LABEL = {
+    StalenessSeverity.BROKEN.value: "🔴 Broken — the documentation is wrong and needs fixing",
+    StalenessSeverity.POTENTIALLY_OUTDATED.value: "🟠 Possibly outdated — worth a quick review",
+    StalenessSeverity.REVIEW_RECOMMENDED.value: "🔵 Low priority — a quick glance is enough",
+}
+
+# For each kind of change: what happened, what it means, and what to do — all in
+# plain English so a reviewer instantly understands the flag without jargon.
+_CHANGE_GUIDE = {
+    "deleted": (
+        "This function/class was **removed** from the code.",
+        "Its documentation now describes something that no longer exists.",
+        "Click **Mark resolved** to retire the old documentation — there is nothing left to document.",
+    ),
+    "renamed": (
+        "This function/class was **renamed**.",
+        "The old name in the documentation is no longer valid.",
+        "Re-run **Generate docs** so the docs use the new name, then click **Mark resolved**.",
+    ),
+    "parameters_changed": (
+        "Its **parameters (inputs) changed** — one or more were added, removed, or renamed.",
+        "The arguments listed in the documentation are now incorrect.",
+        "Re-run **Generate docs** to refresh the parameters, then click **Mark resolved**.",
+    ),
+    "signature_changed": (
+        "Its **signature changed** (parameter types or default values).",
+        "The documented contract no longer matches the actual code.",
+        "Re-run **Generate docs**, then click **Mark resolved**.",
+    ),
+    "return_type_changed": (
+        "Its **return type changed** (what it gives back).",
+        "The “Returns” section of the documentation is now wrong.",
+        "Re-run **Generate docs**, then click **Mark resolved**.",
+    ),
+    "body_modified": (
+        "Its **internal code changed**, but the inputs and outputs are the same.",
+        "The behaviour may have shifted, so any examples or notes could be outdated. (See the current code below.)",
+        "Review the source below; if the behaviour really changed, re-run **Generate docs**. Otherwise click **Mark resolved**.",
+    ),
+    "docstring_changed": (
+        "Only the in-code comment (docstring) changed.",
+        "This is low risk — the documentation is probably still accurate.",
+        "Give it a quick glance, then click **Mark resolved**.",
+    ),
+    "added": (
+        "This is **new code** that has no documentation yet.",
+        "It isn’t documented at all.",
+        "Re-run **Generate docs** to create documentation for it.",
+    ),
+}
+
 
 class StalenessService:
     """Query staleness flags and draft documentation updates."""
@@ -107,16 +159,35 @@ class StalenessService:
     def _fallback_draft(self, flag: StalenessFlag, original: str) -> str:
         """Deterministic draft when AI is unavailable.
 
-        Annotates the existing documentation with a clear, actionable note about
-        what changed, so reviewers still get useful guidance offline.
+        Explains — in plain English — what changed, what it means, and what to
+        do, so a reviewer instantly understands the flag without any jargon.
         """
-        note = (
-            f"> ⚠️ **Documentation may be stale** — {flag.reason}\n>\n"
-            f"> Detected change: `{flag.change_type}` "
-            f"(severity **{flag.severity}**).\n"
+        what, means, todo = _CHANGE_GUIDE.get(
+            flag.change_type,
+            (
+                f"This entity changed (`{flag.change_type}`).",
+                flag.reason or "Its documentation may no longer be accurate.",
+                "Review the current code below, then click **Mark resolved**.",
+            ),
         )
-        body = original or f"## `{flag.qualified_name}`\n\n_No previous documentation existed._"
-        snippet = ""
+        severity_label = _SEVERITY_LABEL.get(flag.severity, flag.severity)
+
+        parts = [
+            f"## `{flag.qualified_name}`",
+            "",
+            f"> ⚠️ **This documentation may be out of date.**  ",
+            f"> Severity: **{severity_label}**",
+            "",
+            "### What changed",
+            what,
+            "",
+            "### What this means",
+            means,
+            "",
+            "### What to do",
+            todo,
+        ]
+
         if flag.new_source:
             # Label the fence with the entity's actual language, not always Python.
             lang = ""
@@ -124,5 +195,9 @@ class StalenessService:
                 entity = self.db.get(CodeEntity, flag.entity_id)
                 if entity is not None:
                     lang = fence_language(entity.relative_path)
-            snippet = f"\n\n### Current source\n\n```{lang}\n{flag.new_source}\n```\n"
-        return f"{note}\n{body}{snippet}"
+            parts += ["", "### Current source", f"```{lang}", flag.new_source, "```"]
+
+        if original.strip():
+            parts += ["", "### Previous documentation (for reference)", "", original.strip()]
+
+        return "\n".join(parts) + "\n"

@@ -309,20 +309,37 @@ def _visible_params(entity: ParsedEntity) -> list[str]:
 
 
 def _synth_overview(entity: ParsedEntity) -> str:
-    """Synthesize a one-line overview from the signature when no docstring exists."""
-    kind = entity.kind.value
+    """Synthesize a readable one-line overview from the signature."""
     if entity.kind in {EntityKind.FUNCTION, EntityKind.METHOD}:
-        prefix = "Asynchronously runs" if entity.is_async else "Runs"
-        sentence = f"{prefix} `{entity.name}`"
+        kind_word = "method" if entity.kind is EntityKind.METHOD else "function"
+        if entity.is_async:
+            kind_word = f"asynchronous {kind_word}"
+        sentence = f"`{entity.name}` is a {kind_word}"
         params = _visible_params(entity)
         if params:
-            sentence += " given " + ", ".join(f"`{p}`" for p in params)
+            sentence += " that takes " + _join_human([f"`{p}`" for p in params])
+        else:
+            sentence += " that takes no arguments"
         if entity.return_type:
-            sentence += f", returning `{entity.return_type}`"
+            sentence += f" and returns `{entity.return_type}`"
         return sentence + "."
     if entity.kind is EntityKind.CLASS:
-        return f"The `{entity.name}` class, defined in `{entity.relative_path}`."
-    return f"`{entity.qualified_name}` ({kind})."
+        return (
+            f"`{entity.name}` is a class defined in `{entity.relative_path}`. "
+            "It groups related data and behaviour."
+        )
+    if entity.kind is EntityKind.MODULE:
+        return f"`{entity.qualified_name}` is a source module."
+    return f"`{entity.qualified_name}`."
+
+
+def _join_human(items: list[str]) -> str:
+    """Join items the way a person reads them: 'a', 'a and b', 'a, b and c'."""
+    if len(items) <= 1:
+        return items[0] if items else ""
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return ", ".join(items[:-1]) + f" and {items[-1]}"
 
 
 def _synth_example(entity: ParsedEntity) -> str:

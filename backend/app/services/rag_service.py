@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import AIServiceError, NotFoundError
 from app.core.logging import get_logger
 from app.models import CodeEntity, Documentation, Repository
+from app.models.enums import EntityKind
 from app.prompts import CHAT_SYSTEM_PROMPT, build_chat_prompt
 from app.rag import (
     DimensionMismatchError,
@@ -44,6 +45,17 @@ _LOCAL_MIN_NAME = 0.6     # ≥ one substring-or-better query↔name token match
 _LOCAL_MIN_TEXT = 2.0     # ≥ two distinct query terms present in the doc text
 _LOCAL_STRONG_VECTOR = 0.72   # well above the observed off-topic noise ceiling
 _NOT_FOUND = "Information not found in documentation."
+
+
+def _is_not_found(answer: str) -> bool:
+    """True if the LLM answer is (just) the not-found sentinel.
+
+    The model is instructed to reply with the exact sentinel when the context
+    doesn't answer the question; tolerate trailing punctuation/quotes/whitespace
+    so the response is recognized regardless of minor formatting.
+    """
+    normalized = (answer or "").strip().strip('"').rstrip(" .").lower()
+    return normalized == _NOT_FOUND.rstrip(" .").lower()
 
 
 class RAGService:
@@ -107,6 +119,15 @@ class RAGService:
         if vector_store.count(repository_id) == 0:
             await self.index_repository(repository_id)
 
+        # High-level "explain the whole codebase" questions name no specific
+        # entity, so the per-entity relevance gate below would (correctly, for
+        # its purpose) reject them as "not found". Treat them instead as an
+        # overview request grounded in the repository's top-level structure.
+        if _is_overview_query(message):
+            overview = await self._overview_answer(repo, message)
+            if overview is not None:
+                return overview
+
         # Retrieve a wide candidate set, then re-rank with a lexical signal so
         # name-based queries (e.g. "URLSafeSerializer", "dumps") reliably find
         # the right entity even with the local embedder.
@@ -167,6 +188,12 @@ class RAGService:
             return {"answer": _NOT_FOUND, "sources": [], "grounded": False}
 
         answer = await self._answer(message, relevant)
+        # Even with relevant chunks retrieved, the LLM may judge that they don't
+        # actually answer the question and return the not-found sentinel. In that
+        # case the reply is NOT grounded — drop the sources so the UI never shows
+        # citations next to an "Information not found" answer.
+        if _is_not_found(answer):
+            return {"answer": _NOT_FOUND, "sources": [], "grounded": False}
         return {"answer": answer, "sources": sources, "grounded": True}
 
     # --- internals ---------------------------------------------------------
@@ -234,6 +261,113 @@ class RAGService:
             f"\n\n{truncate(top['text'], 800)}"
         )
 
+    async def _overview_answer(self, repo: Repository, message: str) -> dict | None:
+        """Answer a high-level question grounded in the repo's top-level shape.
+
+        Rather than a single best-matching entity, this gathers the repository's
+        modules and classes (preferring documented ones) and either composes a
+        prose summary with the LLM or, offline, renders a deterministic
+        structured overview. Returns ``None`` if there's nothing to summarize so
+        the caller can fall through to normal retrieval.
+        """
+        modules = list(
+            self.db.scalars(
+                select(CodeEntity).where(
+                    CodeEntity.repository_id == repo.id,
+                    CodeEntity.kind == EntityKind.MODULE.value,
+                )
+            ).all()
+        )
+        classes = list(
+            self.db.scalars(
+                select(CodeEntity).where(
+                    CodeEntity.repository_id == repo.id,
+                    CodeEntity.kind == EntityKind.CLASS.value,
+                )
+            ).all()
+        )
+        if not modules and not classes:
+            return None
+
+        # Documented entities first (a docstring is the strongest summary
+        # signal), then a stable path/name order. Cap counts so the answer — and
+        # the LLM prompt — stays focused on the most informative pieces.
+        top_modules = sorted(
+            modules, key=lambda e: (e.docstring is None, e.relative_path or e.qualified_name)
+        )[:20]
+        top_classes = sorted(
+            classes, key=lambda e: (e.docstring is None, e.qualified_name)
+        )[:15]
+
+        sources = [
+            {
+                "qualified_name": e.qualified_name,
+                "relative_path": e.relative_path,
+                "kind": e.kind,
+                "score": 1.0,
+                "excerpt": truncate(_first_line(e.docstring) or e.signature, 320),
+            }
+            for e in (top_modules + top_classes)
+            if e.docstring or e.signature
+        ][:8]
+
+        if ai_service.enabled:
+            context_blocks = [
+                f"Source: {e.qualified_name} ({e.kind})\n"
+                + truncate(e.docstring or e.signature or "", 500)
+                for e in (top_modules + top_classes)
+                if e.docstring or e.signature
+            ][:18]
+            prompt = build_chat_prompt(question=message, context_blocks=context_blocks)
+            try:
+                answer = await ai_service.complete(
+                    system=CHAT_SYSTEM_PROMPT,
+                    user=prompt,
+                    temperature=0.1,
+                    max_tokens=700,
+                )
+                return {"answer": answer, "sources": sources, "grounded": True}
+            except AIServiceError:
+                pass  # fall through to the deterministic overview
+
+        return {
+            "answer": self._structural_overview(repo, top_modules, top_classes),
+            "sources": sources,
+            "grounded": True,
+        }
+
+    def _structural_overview(
+        self,
+        repo: Repository,
+        modules: list[CodeEntity],
+        classes: list[CodeEntity],
+    ) -> str:
+        """Render a deterministic codebase overview from module/class docstrings."""
+        lines = [
+            f"# Overview: {repo.full_name}",
+            "",
+            f"This repository has **{repo.file_count} files** and "
+            f"**{repo.entity_count} documented entities**.",
+        ]
+        if modules:
+            lines += ["", "## Modules"]
+            for m in modules:
+                desc = _first_line(m.docstring)
+                path = m.relative_path or m.qualified_name
+                lines.append(f"- `{path}`" + (f" — {desc}" if desc else ""))
+        if classes:
+            lines += ["", "## Key classes"]
+            for c in classes:
+                desc = _first_line(c.docstring)
+                lines.append(f"- `{c.qualified_name}`" + (f" — {desc}" if desc else ""))
+        lines += [
+            "",
+            "> Structured overview generated from module and class docstrings. "
+            "Re-run “Generate docs” with AI available, or ask about a specific "
+            "function or class, for a richer answer.",
+        ]
+        return "\n".join(lines)
+
 
 # --- lexical scoring helpers ----------------------------------------------
 
@@ -246,6 +380,46 @@ _STOPWORDS = {
     "class", "method", "function", "module", "handle", "handles", "accept",
     "accepts", "there", "about", "tell", "explain", "show", "give",
 }
+
+
+# An overview question pairs an intent verb ("explain", "overview", "summarize"
+# …) with a whole-codebase noun ("codebase", "repo", "project" …), or is a
+# self-contained phrase like "what does this project do". Such queries name no
+# specific entity, so they bypass the per-entity relevance gate and are answered
+# from the repository's top-level structure instead.
+_OVERVIEW_VERB = re.compile(
+    r"\b(explain|describe|overview|summar(y|ize|ise)|architecture|structure|"
+    r"walk\s+me\s+through|high[-\s]?level|get(ting)?\s+started|tour|onboard)\b",
+    re.IGNORECASE,
+)
+_OVERVIEW_NOUN = re.compile(
+    r"\b(code\s?base|repo(sitory)?|project|the\s+code|this\s+code|app|application|"
+    r"library|package|system|everything|whole\s+thing)\b",
+    re.IGNORECASE,
+)
+_OVERVIEW_PHRASE = re.compile(
+    r"what\s+(does|is)\s+(this|the|it)\b|what'?s\s+(this|it)\b|"
+    r"how\s+(is|does)\s+(this|the)\s+(code\s?base|repo|repository|project|code)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_overview_query(message: str) -> bool:
+    """True if the question is about the codebase as a whole (no single entity)."""
+    if _OVERVIEW_PHRASE.search(message):
+        return True
+    return bool(_OVERVIEW_VERB.search(message) and _OVERVIEW_NOUN.search(message))
+
+
+def _first_line(text: str | None) -> str:
+    """First non-empty, stripped line of a docstring (its summary line)."""
+    if not text:
+        return ""
+    for line in text.strip().splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return ""
 
 
 def _token_match(qt: str, nt: str) -> float:

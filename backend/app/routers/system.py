@@ -63,6 +63,16 @@ def config() -> ConfigResponse:
     )
 
 
+@router.get("/diagnostics/ai", summary="Live AI connectivity check")
+async def diagnostics_ai() -> dict:
+    """Make a tiny real AI call and report success or the exact upstream error.
+
+    Useful when docs/chat unexpectedly fall back: tells you whether the key,
+    credits, or model is the problem.
+    """
+    return await ai_service.diagnose()
+
+
 @router.get("/stats", response_model=DashboardStats, summary="Dashboard statistics")
 def stats(db: Session = Depends(get_db)) -> DashboardStats:
     repositories = db.scalar(select(func.count()).select_from(Repository)) or 0

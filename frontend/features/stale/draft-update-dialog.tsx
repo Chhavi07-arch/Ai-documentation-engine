@@ -89,19 +89,19 @@ export function DraftUpdateDialog({
           </div>
         ) : (
           <>
-            <Tabs defaultValue="diff">
+            <Tabs defaultValue="preview">
               <TabsList>
-                <TabsTrigger value="diff">Unified diff</TabsTrigger>
                 <TabsTrigger value="preview">Preview</TabsTrigger>
+                <TabsTrigger value="diff">Unified diff</TabsTrigger>
               </TabsList>
-              <TabsContent value="diff">
-                <div className="max-h-[50vh] overflow-y-auto">
-                  <DiffViewer diff={draft.unified_diff} />
-                </div>
-              </TabsContent>
               <TabsContent value="preview">
                 <div className="max-h-[50vh] overflow-y-auto rounded-lg border border-border p-4">
                   <Markdown content={draft.drafted_markdown} />
+                </div>
+              </TabsContent>
+              <TabsContent value="diff">
+                <div className="max-h-[50vh] overflow-y-auto">
+                  <DiffViewer diff={draft.unified_diff} />
                 </div>
               </TabsContent>
             </Tabs>

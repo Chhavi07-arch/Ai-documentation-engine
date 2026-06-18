@@ -131,6 +131,39 @@ class AIService:
 
         return response.json()
 
+    async def diagnose(self) -> dict:
+        """Make a tiny live call to verify the AI actually works.
+
+        Returns a structured result including the real upstream status and error
+        body, so misconfiguration (bad key, no credits, unknown model) can be
+        diagnosed without digging through server logs.
+        """
+        if not self.enabled:
+            return {"ok": False, "reason": "no_api_key", "model": self._model}
+        payload = {
+            "model": self._model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 5,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                r = await client.post(
+                    f"{self._base_url}/chat/completions",
+                    headers=self._headers(),
+                    json=payload,
+                )
+        except httpx.HTTPError as exc:
+            return {
+                "ok": False, "reason": "transport_error",
+                "detail": str(exc)[:300], "model": self._model,
+            }
+        if r.status_code == 200:
+            return {"ok": True, "model": self._model}
+        return {
+            "ok": False, "reason": f"http_{r.status_code}",
+            "detail": r.text[:400], "model": self._model,
+        }
+
     # --- embeddings --------------------------------------------------------
 
     async def embed(self, texts: list[str]) -> list[list[float]]:

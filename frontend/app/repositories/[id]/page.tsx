@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, ExternalLink, FileCode2, GitBranch } from "lucide-react";
+import { ArrowLeft, FileCode2, GitBranch } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -57,14 +57,7 @@ export default function RepositoryDetailPage() {
             </h1>
             <StatusBadge status={repo.status} />
           </div>
-          <a
-            href={repo.url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            {repo.full_name} <ExternalLink className="h-3 w-3" />
-          </a>
+          <p className="mt-1 text-sm text-muted-foreground">{repo.full_name}</p>
         </div>
         <RepoActions repositoryId={repo.id} />
       </div>

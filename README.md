@@ -69,19 +69,16 @@ A production-style, full-stack MVP that behaves like a real developer-productivi
 │   │   ├── routers/     # REST endpoints
 │   │   └── main.py      # FastAPI app
 │   ├── tests/           # pytest: parser, diffing, API
-│   ├── requirements.txt
-│   └── Dockerfile
+│   └── requirements.txt
 ├── frontend/
 │   ├── app/             # routes: dashboard, repositories, docs, stale, chat, settings
 │   ├── components/      # ui (shadcn), layout, shared
 │   ├── features/        # feature modules (repositories, docs, stale, chat)
 │   ├── hooks/           # TanStack Query hooks
-│   ├── lib/ · services/ # API client + typed endpoint layer
-│   └── Dockerfile
+│   └── lib/ · services/ # API client + typed endpoint layer
 ├── docs_storage/        # generated markdown (gitignored)
 ├── vector_storage/      # ChromaDB persistence (gitignored)
-├── repositories/        # cloned repos (gitignored)
-└── docker-compose.yml
+└── repositories/        # cloned repos (gitignored)
 ```
 
 ---
@@ -121,15 +118,6 @@ App runs at **http://localhost:3000**.
 1. Click **Add repository** and paste a public Python GitHub URL (e.g. `https://github.com/psf/requests`).
 2. Wait for status → **Ready**, then hit **Generate docs**.
 3. Explore docs, open **AI Chat**, or run **Detect changes** → **Stale Center**.
-
----
-
-## 🐳 Run everything with Docker
-
-```bash
-OPENROUTER_API_KEY=sk-or-... docker compose up --build
-# frontend → http://localhost:3000   backend → http://localhost:8000
-```
 
 ---
 
@@ -189,7 +177,7 @@ Covers the AST parser, change-detection classification (incl. rename detection),
 ## ☁️ Deployment
 
 - **Frontend → Vercel:** import the repo, set root to `frontend/`, add `NEXT_PUBLIC_API_URL`.
-- **Backend → Render/Railway:** Docker deploy from `backend/` (a `render.yaml` blueprint and `Procfile` are included). Set `OPENROUTER_API_KEY` and `CORS_ORIGINS` (your Vercel URL).
+- **Backend → Render/Railway:** native Python deploy from `backend/` (a `render.yaml` blueprint and `Procfile` are included; no Docker required). Set `OPENROUTER_API_KEY` and `CORS_ORIGINS` (your Vercel URL).
 
 ---
 

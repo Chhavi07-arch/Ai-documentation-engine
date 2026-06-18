@@ -287,4 +287,35 @@ def test_unchanged_readme_produces_no_doc_change(tmp_path: Path):
     # No edits at all → README must not be reported as changed.
     result = ChangeDetectionService(db).detect_changes(repo.id)
     assert not [c for c in result["changes"] if c["qualified_name"] == "README.md"]
+
+
+def test_sync_reclones_when_working_copy_missing(tmp_path: Path, monkeypatch):
+    """Sync self-heals an ephemeral-disk wipe by re-cloning from the stored URL.
+
+    On hosts with ephemeral disks the checkout can vanish while the Repository
+    row (and its URL) survives in the database. Sync must transparently
+    re-clone instead of erroring with "Local working copy not found".
+    """
+    from app.services import ingestion_service as ing
+    from git import Repo
+
+    db = SessionLocal()
+    missing = tmp_path / "gone"  # never created → simulates a wiped checkout
+    repo = _make_repo(db, missing)
+
+    def fake_clone(url: str, destination: Path, **kwargs):
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+        r = Repo.init(destination)
+        r.index.add(["app.py"])
+        r.index.commit("seed")
+        return r
+
+    monkeypatch.setattr(ing, "clone_repository", fake_clone)
+
+    sha = IngestionService(db).sync_from_remote(repo.id)
+
+    assert sha, "re-clone should report the new HEAD sha"
+    assert missing.exists() and (missing / "app.py").exists()
+    db.close()
     db.close()

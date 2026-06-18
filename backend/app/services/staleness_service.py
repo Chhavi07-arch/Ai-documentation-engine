@@ -18,6 +18,7 @@ from app.models.enums import StalenessSeverity
 from app.prompts import build_doc_update_prompt
 from app.prompts.templates import DOC_GENERATION_SYSTEM_PROMPT
 from app.services.ai_service import ai_service
+from app.utils import fence_language
 
 logger = get_logger("docengine.staleness")
 
@@ -117,5 +118,11 @@ class StalenessService:
         body = original or f"## `{flag.qualified_name}`\n\n_No previous documentation existed._"
         snippet = ""
         if flag.new_source:
-            snippet = f"\n\n### Current source\n\n```python\n{flag.new_source}\n```\n"
+            # Label the fence with the entity's actual language, not always Python.
+            lang = ""
+            if flag.entity_id:
+                entity = self.db.get(CodeEntity, flag.entity_id)
+                if entity is not None:
+                    lang = fence_language(entity.relative_path)
+            snippet = f"\n\n### Current source\n\n```{lang}\n{flag.new_source}\n```\n"
         return f"{note}\n{body}{snippet}"

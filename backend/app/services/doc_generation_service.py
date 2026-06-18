@@ -21,7 +21,7 @@ from app.models.enums import EntityKind
 from app.parsers.base import ParsedEntity, ParsedParameter
 from app.prompts import DOC_GENERATION_SYSTEM_PROMPT, build_doc_generation_prompt
 from app.services.ai_service import ai_service
-from app.utils import load_json, safe_filename, truncate
+from app.utils import fence_language, load_json, safe_filename, truncate
 
 logger = get_logger("docengine.docgen")
 
@@ -218,10 +218,11 @@ class DocGenerationService:
         is still fully usable for demos and offline development.
         """
         lines: list[str] = []
+        lang = fence_language(entity.relative_path)
         lines.append(f"## `{entity.name}`")
         lines.append("")
         if entity.signature:
-            lines.append("```python")
+            lines.append(f"```{lang}")
             lines.append(entity.signature)
             lines.append("```")
             lines.append("")
@@ -278,7 +279,7 @@ class DocGenerationService:
         if is_callable:
             lines.append("### Usage Example")
             lines.append("")
-            lines.append("```python")
+            lines.append(f"```{lang}")
             lines.append(_synth_example(entity))
             lines.append("```")
             lines.append("")

@@ -29,6 +29,15 @@ services:
         value: anthropic/claude-sonnet-4-6
       - key: CORS_ORIGINS
         value: https://frontend-peach-six-99.vercel.app
+      # Background polling that auto-detects stale docs. Off by default; flip to
+      # "true" in the dashboard to enable. With SYNC_REMOTE=true each sweep also
+      # git-fetches the latest commits, so pushes are picked up automatically.
+      - key: AUTO_DETECT_ENABLED
+        value: "false"
+      - key: AUTO_DETECT_INTERVAL_SECONDS
+        value: "300"
+      - key: AUTO_DETECT_SYNC_REMOTE
+        value: "true"
 # Note: the generated-docs vector index and the cloned repo checkouts still live
 # on the ephemeral instance disk. Docs/repos/flags persist in Postgres; the chat
 # index re-builds itself from those docs on demand after a restart.

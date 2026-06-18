@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import get_logger
+from app.services.scheduler import auto_detect_scheduler
 from app.routers import (
     chat,
     changes,
@@ -33,14 +34,19 @@ API_PREFIX = "/api"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Initialize the database on startup."""
+    """Initialize the database and start background tasks on startup."""
     init_db()
     logger.info(
         "AI Documentation Engine v%s started (AI %s).",
         __version__,
         "enabled" if settings.ai_enabled else "disabled — set OPENROUTER_API_KEY",
     )
-    yield
+    # Start the recurring auto-detection sweep (no-op unless AUTO_DETECT_ENABLED).
+    await auto_detect_scheduler.start()
+    try:
+        yield
+    finally:
+        await auto_detect_scheduler.stop()
 
 
 app = FastAPI(

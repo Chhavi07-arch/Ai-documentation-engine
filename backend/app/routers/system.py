@@ -26,6 +26,8 @@ class ConfigResponse(BaseModel):
     model: str
     embedding_mode: str  # "openrouter" when a key is set, else "local"
     database: str  # "postgresql" (persistent) or "sqlite" (ephemeral)
+    auto_detect_enabled: bool  # background polling for stale docs is active
+    auto_detect_interval_seconds: int  # how often the sweep runs
 
 
 class DashboardStats(BaseModel):
@@ -54,6 +56,8 @@ def config() -> ConfigResponse:
         model=settings.openrouter_model,
         embedding_mode="openrouter" if use_remote_embeddings else "local",
         database=engine.dialect.name,
+        auto_detect_enabled=settings.auto_detect_enabled,
+        auto_detect_interval_seconds=settings.auto_detect_interval_seconds,
     )
 
 

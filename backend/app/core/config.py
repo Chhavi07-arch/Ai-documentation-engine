@@ -70,6 +70,26 @@ class Settings(BaseSettings):
     # 503 so changes can't be triggered without a configured secret).
     github_webhook_secret: str = Field(default="", alias="GITHUB_WEBHOOK_SECRET")
 
+    # --- Automatic change detection (background polling) ---
+    # When enabled, a background task periodically re-runs change detection for
+    # every READY repository, so stale-doc flags appear on their own without
+    # anyone clicking "Detect changes". This is the polling complement to the
+    # event-driven GitHub webhook. Disabled by default so it's an explicit
+    # opt-in (a busy server may not want a recurring sweep).
+    auto_detect_enabled: bool = Field(default=False, alias="AUTO_DETECT_ENABLED")
+    # How often (seconds) to run a detection cycle. Clamped to a 10s floor so a
+    # mistyped tiny value can't hammer the server.
+    auto_detect_interval_seconds: int = Field(
+        default=300, alias="AUTO_DETECT_INTERVAL_SECONDS"
+    )
+    # When True, each cycle first git-fetches the latest commits (catches pushes
+    # to GitHub). When False, it only re-parses the local working tree (catches
+    # local edits; lighter and never touches the network). Fetching resets the
+    # working copy to remote HEAD, so leave this False if you rely on local edits.
+    auto_detect_sync_remote: bool = Field(
+        default=False, alias="AUTO_DETECT_SYNC_REMOTE"
+    )
+
     # --- CORS ---
     # Cover both common Next.js dev ports (3000, and 3001 when 3000 is taken)
     # on localhost and 127.0.0.1, so a clean checkout works regardless of where

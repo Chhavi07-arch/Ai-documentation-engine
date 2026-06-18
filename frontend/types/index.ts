@@ -177,4 +177,7 @@ export interface AppConfig {
   ai_enabled: boolean;
   model: string;
   embedding_mode: string;
+  database?: string;
+  auto_detect_enabled?: boolean;
+  auto_detect_interval_seconds?: number;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, Wand2, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Wand2, TriangleAlert, RadioTower } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,14 +12,17 @@ import { PageHeader } from "@/components/shared/page-header";
 import { RepoSelect } from "@/components/shared/repo-select";
 import { SeverityBadge } from "@/components/shared/severity-badge";
 import { DraftUpdateDialog } from "@/features/stale/draft-update-dialog";
-import { useRepositories, useStaleDocs } from "@/hooks/use-docengine";
+import { useConfig, useRepositories, useStaleDocs } from "@/hooks/use-docengine";
 import { formatDate } from "@/lib/utils";
 import type { StalenessFlag } from "@/types";
 
 export default function StalePage() {
   const repos = useRepositories();
+  const config = useConfig();
   const [repoId, setRepoId] = React.useState<number | null>(null);
   const flags = useStaleDocs(repoId ?? undefined);
+  const autoOn = config.data?.auto_detect_enabled;
+  const autoEvery = config.data?.auto_detect_interval_seconds;
 
   const [active, setActive] = React.useState<StalenessFlag | null>(null);
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -45,6 +48,17 @@ export default function StalePage() {
           ) : undefined
         }
       />
+
+      {autoOn ? (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+          <RadioTower className="h-4 w-4 animate-pulse text-primary" />
+          <span>
+            Auto-detection is <span className="font-medium text-foreground">on</span>
+            {autoEvery ? ` — re-checking every ${autoEvery}s` : ""}. New stale docs
+            appear here automatically.
+          </span>
+        </div>
+      ) : null}
 
       {flags.isLoading ? (
         <div className="space-y-3">

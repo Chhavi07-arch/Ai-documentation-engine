@@ -40,8 +40,16 @@ const ACTIVE_STATUSES: RepositoryStatus[] = [
   "generating",
 ];
 
+// Stale-doc flags can appear on their own when backend auto-detection is on,
+// so these views poll to stay fresh. 8s is responsive without being chatty.
+const STALE_POLL_MS = 8000;
+
 export function useStats() {
-  return useQuery({ queryKey: queryKeys.stats, queryFn: docengine.getStats });
+  return useQuery({
+    queryKey: queryKeys.stats,
+    queryFn: docengine.getStats,
+    refetchInterval: STALE_POLL_MS,
+  });
 }
 
 export function useConfig() {
@@ -109,6 +117,8 @@ export function useStaleDocs(repositoryId?: number) {
   return useQuery({
     queryKey: queryKeys.staleDocs(repositoryId),
     queryFn: () => docengine.listStaleDocs(repositoryId),
+    // Poll so flags raised by background auto-detection surface on their own.
+    refetchInterval: STALE_POLL_MS,
   });
 }
 

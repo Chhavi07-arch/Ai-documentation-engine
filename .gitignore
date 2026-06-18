@@ -38,3 +38,10 @@ frontend/.env.local
 .idea/
 .vscode/
 *.log
+
+# --- Local-only notes (kept on disk, not part of the public repo) ---
+CLAUDE.md
+PRESENTATION_GUIDE.md
+PROJECT_EXPLAINED_IN_DETAIL.md
+VIVA_FULL_FLOW.md
+VIVA_MASTER_GUIDE.md

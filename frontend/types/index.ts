@@ -175,6 +175,7 @@ export interface DashboardStats {
 
 export interface AppConfig {
   ai_enabled: boolean;
+  provider?: string;
   model: string;
   embedding_mode: string;
   database?: string;

@@ -59,6 +59,19 @@ class Settings(BaseSettings):
         default="AI Documentation Engine", alias="OPENROUTER_APP_NAME"
     )
 
+    # --- AI provider selection ---
+    # Which backend serves chat + doc generation:
+    #   "auto"       — use Anthropic if an Anthropic key is present (or the key in
+    #                  OPENROUTER_API_KEY starts with "sk-ant-"), else OpenRouter
+    #   "anthropic"  — call Anthropic's API directly (uses ANTHROPIC_API_KEY)
+    #   "openrouter" — call OpenRouter (uses OPENROUTER_API_KEY)
+    ai_provider: str = Field(default="auto", alias="AI_PROVIDER")
+    # Native Anthropic API key (https://console.anthropic.com/settings/keys),
+    # looks like "sk-ant-...". Empty → fall back to OpenRouter / local.
+    anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    # Anthropic model id (no "anthropic/" prefix — that prefix is OpenRouter-only).
+    anthropic_model: str = Field(default="claude-sonnet-4-6", alias="ANTHROPIC_MODEL")
+
     # --- Database ---
     database_url: str = Field(
         default="sqlite:///./docengine.db", alias="DATABASE_URL"
@@ -129,9 +142,36 @@ class Settings(BaseSettings):
         return self._resolve(self.vector_storage_dir)
 
     @property
+    def resolved_provider(self) -> str:
+        """Which AI backend is active: "anthropic" or "openrouter"."""
+        if self.ai_provider in ("anthropic", "openrouter"):
+            return self.ai_provider
+        # "auto": prefer Anthropic when an Anthropic key is configured — including
+        # the common case of an "sk-ant-..." key pasted into OPENROUTER_API_KEY.
+        if self.anthropic_api_key.strip():
+            return "anthropic"
+        if self.openrouter_api_key.strip().startswith("sk-ant-"):
+            return "anthropic"
+        return "openrouter"
+
+    @property
+    def active_ai_key(self) -> str:
+        """The API key for the resolved provider."""
+        if self.resolved_provider == "anthropic":
+            return self.anthropic_api_key.strip() or self.openrouter_api_key.strip()
+        return self.openrouter_api_key.strip()
+
+    @property
+    def active_model(self) -> str:
+        """The chat/generation model id for the resolved provider."""
+        if self.resolved_provider == "anthropic":
+            return self.anthropic_model
+        return self.openrouter_model
+
+    @property
     def ai_enabled(self) -> bool:
-        """True when an OpenRouter key is configured."""
-        return bool(self.openrouter_api_key.strip())
+        """True when a usable key is configured for the resolved provider."""
+        return bool(self.active_ai_key)
 
     def _resolve(self, value: str) -> Path:
         """Resolve a (possibly relative) storage path against the backend root."""

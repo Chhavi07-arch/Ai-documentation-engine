@@ -24,18 +24,26 @@ class AIService:
     """Wraps OpenRouter's OpenAI-compatible chat and embedding endpoints."""
 
     def __init__(self) -> None:
-        self._model = settings.openrouter_model
         self._embedding_model = settings.openrouter_embedding_model
         self._base_url = settings.openrouter_base_url.rstrip("/")
 
     @property
     def enabled(self) -> bool:
-        """True when an API key is configured."""
+        """True when an API key is configured for the resolved provider."""
         return settings.ai_enabled
 
     @property
+    def provider(self) -> str:
+        """The active backend: "anthropic" or "openrouter"."""
+        return settings.resolved_provider
+
+    @property
     def model(self) -> str:
-        return self._model
+        return settings.active_model
+
+    @property
+    def _model(self) -> str:  # backwards-compatible alias used internally
+        return settings.active_model
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -57,11 +65,15 @@ class AIService:
     ) -> str:
         """Run a single chat completion and return the assistant text.
 
-        Raises :class:`AIServiceError` when the key is missing or the upstream
-        call fails — callers decide whether to fall back.
+        Routes to Anthropic's native API or OpenRouter based on the resolved
+        provider. Raises :class:`AIServiceError` when the key is missing or the
+        upstream call fails — callers decide whether to fall back.
         """
         if not self.enabled:
-            raise AIServiceError("OpenRouter API key is not configured.")
+            raise AIServiceError("No AI API key is configured.")
+
+        if self.provider == "anthropic":
+            return await self._complete_anthropic(system, user, temperature, max_tokens)
 
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -74,6 +86,35 @@ class AIService:
             return data["choices"][0]["message"]["content"].strip()
         except (KeyError, IndexError) as exc:  # pragma: no cover - defensive
             raise AIServiceError("Malformed response from AI provider.") from exc
+
+    async def _complete_anthropic(
+        self, system: str, user: str, temperature: float, max_tokens: int
+    ) -> str:
+        """Chat completion via Anthropic's native Messages API (official SDK)."""
+        from anthropic import AsyncAnthropic
+        from anthropic import APIStatusError, APIError
+
+        client = AsyncAnthropic(api_key=settings.active_ai_key, timeout=120.0)
+        try:
+            message = await client.messages.create(
+                model=self._model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+        except APIStatusError as exc:
+            logger.error("Anthropic chat error %s: %s", exc.status_code, str(exc)[:200])
+            raise AIServiceError(f"AI request failed: {exc.status_code}") from exc
+        except APIError as exc:
+            logger.error("Anthropic chat error: %s", exc)
+            raise AIServiceError("Could not reach the AI provider.") from exc
+
+        text = "".join(
+            block.text for block in message.content if getattr(block, "type", None) == "text"
+        ).strip()
+        if not text:
+            raise AIServiceError("Empty response from AI provider.")
+        return text
 
     async def _post_chat(
         self,
@@ -139,7 +180,18 @@ class AIService:
         diagnosed without digging through server logs.
         """
         if not self.enabled:
-            return {"ok": False, "reason": "no_api_key", "model": self._model}
+            return {"ok": False, "reason": "no_api_key", "provider": self.provider, "model": self._model}
+
+        if self.provider == "anthropic":
+            try:
+                await self._complete_anthropic("", "ping", 0.0, 5)
+                return {"ok": True, "provider": "anthropic", "model": self._model}
+            except AIServiceError as exc:
+                return {
+                    "ok": False, "reason": "anthropic_error",
+                    "detail": str(exc)[:300], "provider": "anthropic", "model": self._model,
+                }
+
         payload = {
             "model": self._model,
             "messages": [{"role": "user", "content": "ping"}],
@@ -155,13 +207,13 @@ class AIService:
         except httpx.HTTPError as exc:
             return {
                 "ok": False, "reason": "transport_error",
-                "detail": str(exc)[:300], "model": self._model,
+                "detail": str(exc)[:300], "provider": "openrouter", "model": self._model,
             }
         if r.status_code == 200:
-            return {"ok": True, "model": self._model}
+            return {"ok": True, "provider": "openrouter", "model": self._model}
         return {
             "ok": False, "reason": f"http_{r.status_code}",
-            "detail": r.text[:400], "model": self._model,
+            "detail": r.text[:400], "provider": "openrouter", "model": self._model,
         }
 
     # --- embeddings --------------------------------------------------------
@@ -174,6 +226,9 @@ class AIService:
         """
         if not self.enabled:
             raise AIServiceError("OpenRouter API key is not configured.")
+        if self.provider != "openrouter":
+            # Anthropic has no embeddings endpoint — fall back to the local embedder.
+            raise AIServiceError("Remote embeddings are only available via OpenRouter.")
         if not texts:
             return []
 

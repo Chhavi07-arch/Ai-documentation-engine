@@ -23,6 +23,7 @@ class HealthResponse(BaseModel):
 
 class ConfigResponse(BaseModel):
     ai_enabled: bool
+    provider: str  # "anthropic" or "openrouter"
     model: str
     embedding_mode: str  # "openrouter" when a key is set, else "local"
     database: str  # "postgresql" (persistent) or "sqlite" (ephemeral)
@@ -51,10 +52,15 @@ def health() -> HealthResponse:
 def config() -> ConfigResponse:
     from app.core.database import engine
 
-    use_remote_embeddings = settings.use_openrouter_embeddings and ai_service.enabled
+    use_remote_embeddings = (
+        settings.use_openrouter_embeddings
+        and ai_service.enabled
+        and settings.resolved_provider == "openrouter"
+    )
     return ConfigResponse(
         ai_enabled=ai_service.enabled,
-        model=settings.openrouter_model,
+        provider=settings.resolved_provider,
+        model=ai_service.model,
         embedding_mode="openrouter" if use_remote_embeddings else "local",
         database=engine.dialect.name,
         auto_detect_enabled=settings.auto_detect_enabled,

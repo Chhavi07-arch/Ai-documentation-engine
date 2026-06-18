@@ -23,8 +23,17 @@ services:
           property: connectionString
       - key: PYTHON_VERSION
         value: "3.11.9"
+      # AI provider: "auto" detects an Anthropic key (sk-ant-...) and uses
+      # Anthropic directly, else falls back to OpenRouter. Set ONE of the keys
+      # below in the dashboard; the app also works with no key (local fallback).
+      - key: AI_PROVIDER
+        value: auto
+      - key: ANTHROPIC_API_KEY
+        sync: false # set your sk-ant-... key in the dashboard
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
       - key: OPENROUTER_API_KEY
-        sync: false # optional — set in the dashboard; the app works without it
+        sync: false # optional — only if using OpenRouter instead of Anthropic
       - key: OPENROUTER_MODEL
         value: anthropic/claude-sonnet-4-6
       - key: CORS_ORIGINS

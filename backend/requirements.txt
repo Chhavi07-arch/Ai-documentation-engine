@@ -22,6 +22,9 @@ tree-sitter-language-pack==0.13.0
 # --- HTTP client for OpenRouter ---
 httpx==0.28.1
 
+# --- Anthropic API (native provider option; OpenRouter remains supported) ---
+anthropic==0.111.0
+
 # --- RAG / vector store ---
 chromadb==0.5.23
 

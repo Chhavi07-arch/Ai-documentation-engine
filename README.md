@@ -202,3 +202,6 @@ Chat:     question → embed → retrieve top-k chunks → grounded LLM answer +
 ---
 
 Built as a polished, demo-ready collaborative engineering project. 🚀
+
+<!-- test: verifying push pipeline -->
+

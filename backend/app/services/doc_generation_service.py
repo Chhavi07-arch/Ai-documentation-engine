@@ -99,6 +99,26 @@ class DocGenerationService:
             "generator": used_generator if generated else "none",
         }
 
+    def save_documentation(
+        self, entity_id: int, markdown: str, generator: str = "ai"
+    ) -> int:
+        """Persist a reviewed/approved doc for one entity (DB + disk).
+
+        Used when a human accepts a drafted update from the Stale Center, so the
+        stored documentation is actually replaced (not just the flag dismissed).
+        Returns the entity's repository id so the caller can re-index RAG.
+        """
+        entity = self.db.get(CodeEntity, entity_id)
+        if entity is None:
+            raise NotFoundError(f"Entity {entity_id} not found.")
+        repo = self.db.get(Repository, entity.repository_id)
+        if repo is None:
+            raise NotFoundError(f"Repository {entity.repository_id} not found.")
+        self._persist(repo, entity, markdown, generator)
+        repo.documented_count = self._count_documented(repo.id)
+        self.db.commit()
+        return repo.id
+
     # --- internals ---------------------------------------------------------
 
     def _select_entities(

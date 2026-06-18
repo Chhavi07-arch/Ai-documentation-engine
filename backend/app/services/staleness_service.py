@@ -113,6 +113,25 @@ class StalenessService:
         self.db.commit()
         return flag
 
+    def apply_documentation(self, flag_id: int, markdown: str) -> int | None:
+        """Save a reviewed draft as the entity's new documentation.
+
+        Returns the repository id (so the caller can re-index RAG), or ``None``
+        when there is nothing to apply — e.g. the entity was deleted, so there
+        is no entity to attach documentation to.
+        """
+        flag = self.db.get(StalenessFlag, flag_id)
+        if flag is None:
+            raise NotFoundError(f"Staleness flag {flag_id} not found.")
+        if not flag.entity_id or not markdown.strip():
+            return None
+        # Lazy import avoids any chance of an import cycle between services.
+        from app.services.doc_generation_service import DocGenerationService
+
+        return DocGenerationService(self.db).save_documentation(
+            flag.entity_id, markdown, generator="ai"
+        )
+
     async def draft_update(self, flag_id: int) -> dict:
         """Draft an updated documentation version for a flagged entity."""
         flag = self.db.get(StalenessFlag, flag_id)

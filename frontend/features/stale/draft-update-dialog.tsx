@@ -58,11 +58,18 @@ export function DraftUpdateDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, flag?.id]);
 
+  // Only apply AI-written drafts as the new doc. Fallback drafts are stale
+  // warnings, not documentation, so for those we just dismiss the flag.
+  const canApply = draft?.generator === "ai";
+
   const onResolve = async () => {
     if (!flag) return;
     try {
-      await resolveFlag.mutateAsync(flag.id);
-      toast.success("Flag resolved");
+      await resolveFlag.mutateAsync({
+        flagId: flag.id,
+        applyMarkdown: canApply ? draft?.drafted_markdown : undefined,
+      });
+      toast.success(canApply ? "Documentation updated & flag resolved" : "Flag resolved");
       onOpenChange(false);
     } catch {
       toast.error("Could not resolve flag");
@@ -108,7 +115,9 @@ export function DraftUpdateDialog({
 
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">
-                Drafted by {draft.generator === "ai" ? "AI" : "fallback"}
+                {canApply
+                  ? "Drafted by AI — “Apply & resolve” saves this as the new documentation."
+                  : "Drafted by fallback — enable AI to save an updated doc; resolving just dismisses the flag."}
               </span>
               <div className="flex gap-2">
                 <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -118,7 +127,7 @@ export function DraftUpdateDialog({
                   {resolveFlag.isPending && (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   )}
-                  Mark resolved
+                  {canApply ? "Apply & resolve" : "Mark resolved"}
                 </Button>
               </div>
             </div>

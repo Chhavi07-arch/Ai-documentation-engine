@@ -170,10 +170,14 @@ export function useDraftUpdate() {
 export function useResolveFlag() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (flagId: number) => docengine.resolveFlag(flagId),
+    mutationFn: (vars: { flagId: number; applyMarkdown?: string }) =>
+      docengine.resolveFlag(vars.flagId, vars.applyMarkdown),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.staleDocsAll });
       qc.invalidateQueries({ queryKey: queryKeys.stats });
+      // A saved draft changes the stored docs — refresh doc views too.
+      qc.invalidateQueries({ queryKey: ["docs"] });
+      qc.invalidateQueries({ queryKey: ["doc"] });
     },
   });
 }

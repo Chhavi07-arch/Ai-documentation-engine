@@ -31,6 +31,17 @@ class DraftUpdateRequest(BaseModel):
     flag_id: int
 
 
+class ResolveFlagRequest(BaseModel):
+    """Resolve a flag, optionally applying a reviewed draft as the new doc.
+
+    When ``apply_markdown`` is provided, the human-reviewed documentation is
+    saved as the entity's documentation before the flag is resolved — keeping a
+    human in the loop while actually updating the stored docs.
+    """
+
+    apply_markdown: str | None = None
+
+
 class DraftUpdateResponse(BaseModel):
     """A drafted documentation update with a unified diff against the original."""
 

@@ -64,8 +64,12 @@ export const docengine = {
     ),
   draftUpdate: (flagId: number) =>
     api.post<DraftUpdateResponse>("/draft-update", { flag_id: flagId }),
-  resolveFlag: (flagId: number) =>
-    api.post<{ message: string }>(`/stale-docs/${flagId}/resolve`),
+  // Pass applyMarkdown to save a reviewed draft as the entity's new docs while
+  // resolving (human-in-the-loop). Omit it to just dismiss the flag.
+  resolveFlag: (flagId: number, applyMarkdown?: string) =>
+    api.post<{ message: string }>(`/stale-docs/${flagId}/resolve`, {
+      apply_markdown: applyMarkdown ?? null,
+    }),
 
   // --- chat ---
   chat: (repositoryId: number, message: string, topK = 5) =>

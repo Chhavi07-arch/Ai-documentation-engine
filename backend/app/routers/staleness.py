@@ -10,8 +10,10 @@ from app.schemas.common import Message
 from app.schemas.staleness import (
     DraftUpdateRequest,
     DraftUpdateResponse,
+    ResolveFlagRequest,
     StalenessFlagRead,
 )
+from app.services.rag_service import RAGService
 from app.services.staleness_service import StalenessService
 
 router = APIRouter(tags=["staleness"])
@@ -48,8 +50,28 @@ async def draft_update(
 @router.post(
     "/stale-docs/{flag_id}/resolve",
     response_model=Message,
-    summary="Mark a staleness flag as resolved",
+    summary="Resolve a flag, optionally applying the reviewed draft",
 )
-def resolve_flag(flag_id: int, db: Session = Depends(get_db)) -> Message:
-    StalenessService(db).resolve_flag(flag_id)
-    return Message(message="Flag resolved.")
+async def resolve_flag(
+    flag_id: int,
+    payload: ResolveFlagRequest = ResolveFlagRequest(),
+    db: Session = Depends(get_db),
+) -> Message:
+    """Resolve a staleness flag.
+
+    If ``apply_markdown`` is supplied (a human-reviewed draft), it is saved as
+    the entity's documentation and the chat index is refreshed before the flag
+    is resolved — so accepting a fix actually updates the docs, with a human
+    still in the loop.
+    """
+    service = StalenessService(db)
+    applied = False
+    if payload.apply_markdown:
+        repo_id = service.apply_documentation(flag_id, payload.apply_markdown)
+        if repo_id is not None:
+            await RAGService(db).index_repository(repo_id)
+            applied = True
+    service.resolve_flag(flag_id)
+    return Message(
+        message="Documentation updated and flag resolved." if applied else "Flag resolved."
+    )

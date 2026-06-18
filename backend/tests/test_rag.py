@@ -121,3 +121,30 @@ def test_chat_self_heals_on_dimension_mismatch(tmp_path: Path):
     assert res["grounded"] in (True, False)  # no exception is the key assertion
     assert isinstance(res["answer"], str) and res["answer"]
     db.close()
+
+
+def test_chat_answers_codebase_overview(tmp_path: Path):
+    """High-level 'explain the codebase' questions are grounded in the repo's
+    top-level structure rather than rejected for naming no specific entity."""
+    db = SessionLocal()
+    repo = _seed_repo_with_docs(db, tmp_path)
+    # Add a module entity with a docstring — the overview's primary signal.
+    module = CodeEntity(
+        repository_id=repo.id,
+        source_file_id=0,
+        kind="module",
+        name="auth",
+        qualified_name="auth",
+        docstring="Authentication helpers for logging users in and out.",
+        relative_path="auth.py",
+    )
+    db.add(module)
+    db.commit()
+
+    res = asyncio.run(
+        RAGService(db).chat(repository_id=repo.id, message="can you explain the codebase?")
+    )
+    assert res["grounded"] is True
+    assert res["answer"] != "Information not found in documentation."
+    assert any(s["qualified_name"] == "auth" for s in res["sources"])
+    db.close()
